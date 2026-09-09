@@ -7,7 +7,10 @@ múltiples comercios mediante organizationId.
 
 1. Copiar .env.example como .env.
 2. Ejecutar npm install.
-3. Iniciar la API con npm run dev.
+3. Ejecutar npx prisma dev -d -n agenda-local y copiar la URL obtenida en .env.
+4. Ejecutar npx prisma migrate dev --config prisma7.config.ts.
+5. Ejecutar npx prisma db seed --config prisma7.config.ts.
+6. Iniciar la API con npm run dev.
 
 La API queda disponible en http://localhost:4000/api/v1.
 
@@ -19,7 +22,11 @@ La API queda disponible en http://localhost:4000/api/v1.
 - npm run prisma:generate: genera Prisma Client.
 - npm run build: compila a dist.
 
-El primer prototipo utiliza datos ficticios en memoria para poder probar todo
-sin configurar PostgreSQL. El esquema definitivo ya contempla organizaciones,
-usuarios, membresías, profesionales, servicios, disponibilidad, ausencias y
-turnos.
+La carga inicial crea Norte Studio, cuatro servicios, tres profesionales,
+horarios semanales, turnos de muestra y un usuario propietario:
+
+- Email: admin@nortestudio.demo
+- Contraseña: Demo1234!
+
+El esquema contempla organizaciones, usuarios, membresías, profesionales,
+servicios, disponibilidad, ausencias, sesiones y turnos.

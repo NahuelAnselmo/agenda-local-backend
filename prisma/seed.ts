@@ -230,4 +230,8 @@ async function main() {
 
 main()
   .then(() => console.log("Datos ficticios cargados correctamente"))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
   .finally(() => prisma.$disconnect());
