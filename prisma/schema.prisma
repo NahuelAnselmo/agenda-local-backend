@@ -35,6 +35,10 @@ model Organization {
   address      String?
   phone        String?
   email        String?
+  location     String?
+  scheduleText String?
+  rating       Float?
+  reviewCount  Int                  @default(0)
   createdAt    DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime             @updatedAt @db.Timestamptz(3)
   memberships  Membership[]
@@ -54,6 +58,19 @@ model User {
   updatedAt    DateTime     @updatedAt @db.Timestamptz(3)
   memberships  Membership[]
   staffProfile Staff?
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  expiresAt DateTime @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Membership {
@@ -72,6 +89,9 @@ model Staff {
   id             String               @id @default(cuid())
   displayName    String
   bio            String?
+  roleTitle       String?
+  initials        String?
+  accent          String?
   active         Boolean              @default(true)
   userId         String?              @unique
   organizationId String
@@ -92,6 +112,7 @@ model Service {
   durationMinutes Int
   priceInCents    Int
   active          Boolean        @default(true)
+  sortOrder       Int            @default(0)
   organizationId  String
   organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   staff           StaffService[]
