@@ -70,7 +70,7 @@ describe("API pública de reservas", () => {
         serviceId: "classic-cut",
         staffId: "nico-ramos",
         date: "2027-01-20",
-        time: "11:15",
+        time: "11:00",
         customer,
       });
 

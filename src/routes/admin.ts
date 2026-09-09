@@ -16,6 +16,15 @@ const servicePatch = serviceBody.partial();
 const appointmentPatch = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"]),
 });
+const availabilityBody = z.object({
+  intervals: z.array(
+    z.object({
+      weekday: z.number().int().min(0).max(6),
+      startTime: z.string().regex(/^\d{2}:\d{2}$/),
+      endTime: z.string().regex(/^\d{2}:\d{2}$/),
+    }),
+  ).max(28),
+});
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth);
@@ -25,7 +34,7 @@ adminRouter.get("/dashboard", async (_request, response) => {
   const now = new Date();
   const endOfWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const [appointments, services, staff, weekCount, completed] =
+  const [appointments, services, staff, availability, weekCount, completed] =
     await Promise.all([
       prisma.appointment.findMany({
         where: {
@@ -45,6 +54,10 @@ adminRouter.get("/dashboard", async (_request, response) => {
         where: { organizationId },
         include: { services: true },
         orderBy: { displayName: "asc" },
+      }),
+      prisma.weeklyAvailability.findMany({
+        where: { organizationId, staffId: null },
+        orderBy: [{ weekday: "asc" }, { startTime: "asc" }],
       }),
       prisma.appointment.count({
         where: {
@@ -79,8 +92,40 @@ adminRouter.get("/dashboard", async (_request, response) => {
       appointments,
       services,
       staff,
+      availability,
     },
   });
+});
+
+adminRouter.put("/availability", async (request, response) => {
+  const parsed = availabilityBody.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({ error: "Horarios inválidos" });
+  }
+  if (
+    parsed.data.intervals.some(
+      (interval) => interval.startTime >= interval.endTime,
+    )
+  ) {
+    return response.status(400).json({
+      error: "La hora de cierre debe ser posterior a la de apertura",
+    });
+  }
+
+  const organizationId = response.locals.auth.organization.id as string;
+  await prisma.$transaction([
+    prisma.weeklyAvailability.deleteMany({
+      where: { organizationId, staffId: null },
+    }),
+    prisma.weeklyAvailability.createMany({
+      data: parsed.data.intervals.map((interval) => ({
+        ...interval,
+        organizationId,
+      })),
+    }),
+  ]);
+
+  return response.json({ data: parsed.data.intervals });
 });
 
 adminRouter.post("/services", async (request, response) => {

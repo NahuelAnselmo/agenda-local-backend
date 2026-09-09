@@ -2,8 +2,9 @@ import { randomBytes } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import {
-  demoTimeSlots,
+  generateTimeSlots,
   toAppointmentRange,
+  weekdayForDate,
 } from "../data/demo.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -94,7 +95,19 @@ publicRouter.get("/businesses/:slug/availability", async (request, response) => 
     },
   });
 
-  const ranges = demoTimeSlots.map((time) => ({
+  const intervals = await prisma.weeklyAvailability.findMany({
+    where: {
+      organizationId: business.id,
+      weekday: weekdayForDate(parsed.data.date),
+      staffId: null,
+    },
+    orderBy: { startTime: "asc" },
+  });
+  const candidateTimes = generateTimeSlots(
+    intervals,
+    service.durationMinutes,
+  );
+  const ranges = candidateTimes.map((time) => ({
     time,
     ...toAppointmentRange(parsed.data.date, time, service.durationMinutes),
   }));
@@ -159,7 +172,7 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
   const service = await prisma.service.findFirst({
     where: { id: serviceId, organizationId: business.id, active: true },
   });
-  if (!service || !demoTimeSlots.includes(time)) {
+  if (!service) {
     return response.status(404).json({ error: "Servicio u horario no disponible" });
   }
 
@@ -172,6 +185,17 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
     },
     orderBy: { displayName: "asc" },
   });
+  const intervals = await prisma.weeklyAvailability.findMany({
+    where: {
+      organizationId: business.id,
+      weekday: weekdayForDate(date),
+      staffId: null,
+    },
+  });
+  const validTimes = generateTimeSlots(intervals, service.durationMinutes);
+  if (!validTimes.includes(time)) {
+    return response.status(404).json({ error: "Servicio u horario no disponible" });
+  }
   const range = toAppointmentRange(date, time, service.durationMinutes);
   let appointment = null;
 
