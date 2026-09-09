@@ -1,10 +1,18 @@
 import request from "supertest";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
-import { reservedAppointments } from "./data/demo.js";
+import { prisma } from "./lib/prisma.js";
 
 describe("API pública de reservas", () => {
-  beforeEach(() => reservedAppointments.splice(0));
+  beforeEach(async () => {
+    await prisma.appointment.deleteMany({
+      where: { customerEmail: "cliente@example.com" },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
 
   it("expone el negocio ficticio con servicios y profesionales", async () => {
     const response = await request(createApp()).get(
@@ -68,5 +76,25 @@ describe("API pública de reservas", () => {
 
     expect(first.status).toBe(201);
     expect(overlapping.status).toBe(409);
+  });
+
+  it("protege el dashboard y permite ingresar con el usuario demo", async () => {
+    const app = createApp();
+    const unauthorized = await request(app).get("/api/v1/admin/dashboard");
+    const login = await request(app).post("/api/v1/auth/login").send({
+      email: "admin@nortestudio.demo",
+      password: "Demo1234!",
+    });
+    const sessionCookie = login.headers["set-cookie"];
+    if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+    const dashboard = await request(app)
+      .get("/api/v1/admin/dashboard")
+      .set("Cookie", sessionCookie);
+
+    expect(unauthorized.status).toBe(401);
+    expect(login.status).toBe(200);
+    expect(sessionCookie).toBeDefined();
+    expect(dashboard.status).toBe(200);
+    expect(dashboard.body.data.services).toHaveLength(4);
   });
 });
