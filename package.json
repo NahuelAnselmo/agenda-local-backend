@@ -2,11 +2,11 @@
   "name": "agenda-local-api",
   "version": "1.0.0",
   "description": "API multi-comercio para gestión de turnos y disponibilidad.",
-  "main": "dist/server.js",
+  "main": "dist/src/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prisma:generate": "prisma generate --config prisma7.config.ts",
