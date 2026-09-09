@@ -28,6 +28,49 @@ const appointmentBody = z.object({
 
 export const publicRouter = Router();
 
+publicRouter.get("/appointments/:token", async (request, response) => {
+  const appointment = await prisma.appointment.findUnique({
+    where: { cancelToken: request.params.token },
+    include: { organization: true, service: true, staff: true },
+  });
+  if (!appointment) {
+    return response.status(404).json({ error: "Reserva no encontrada" });
+  }
+
+  return response.json({
+    data: {
+      id: appointment.id,
+      status: appointment.status,
+      startAt: appointment.startAt,
+      endAt: appointment.endAt,
+      customerName: appointment.customerName,
+      organization: appointment.organization,
+      service: appointment.service,
+      staff: appointment.staff,
+    },
+  });
+});
+
+publicRouter.patch("/appointments/:token/cancel", async (request, response) => {
+  const appointment = await prisma.appointment.findUnique({
+    where: { cancelToken: request.params.token },
+  });
+  if (!appointment) {
+    return response.status(404).json({ error: "Reserva no encontrada" });
+  }
+  if (appointment.status === "COMPLETED") {
+    return response.status(409).json({
+      error: "Un turno completado no puede cancelarse",
+    });
+  }
+
+  const updated = await prisma.appointment.update({
+    where: { id: appointment.id },
+    data: { status: "CANCELLED" },
+  });
+  return response.json({ data: { id: updated.id, status: updated.status } });
+});
+
 publicRouter.get("/businesses/:slug", async (request, response) => {
   const business = await prisma.organization.findUnique({
     where: { slug: request.params.slug },

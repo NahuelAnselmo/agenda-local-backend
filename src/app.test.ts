@@ -97,4 +97,31 @@ describe("API pública de reservas", () => {
     expect(dashboard.status).toBe(200);
     expect(dashboard.body.data.services).toHaveLength(4);
   });
+
+  it("permite consultar y cancelar una reserva mediante su enlace", async () => {
+    const app = createApp();
+    const booking = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send({
+        serviceId: "classic-cut",
+        staffId: "fran-lopez",
+        date: "2027-01-22",
+        time: "12:00",
+        customer: {
+          name: "Cliente Demo",
+          email: "cliente@example.com",
+          phone: "1155550101",
+        },
+      });
+    const token = booking.body.data.cancelToken as string;
+    const details = await request(app).get("/api/v1/appointments/" + token);
+    const cancelled = await request(app).patch(
+      "/api/v1/appointments/" + token + "/cancel",
+    );
+
+    expect(details.status).toBe(200);
+    expect(details.body.data.customerName).toBe("Cliente Demo");
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.data.status).toBe("CANCELLED");
+  });
 });
