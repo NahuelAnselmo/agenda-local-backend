@@ -94,6 +94,54 @@ describe("API pública de reservas", () => {
     expect(dashboard.body.data.services).toHaveLength(4);
   });
 
+  it("crea profesionales y administra sus servicios asignados", async () => {
+    const app = createApp();
+    const login = await request(app).post("/api/v1/auth/login").send({
+      email: "admin@nortestudio.demo",
+      password: "Demo1234!",
+    });
+    const sessionCookie = login.headers["set-cookie"];
+    if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+
+    const dashboard = await request(app)
+      .get("/api/v1/admin/dashboard")
+      .set("Cookie", sessionCookie);
+    const serviceIds = dashboard.body.data.services
+      .slice(0, 2)
+      .map((service: { id: string }) => service.id) as string[];
+
+    const created = await request(app)
+      .post("/api/v1/admin/staff")
+      .set("Cookie", sessionCookie)
+      .send({
+        displayName: "Alex Prueba",
+        roleTitle: "Especialista",
+        serviceIds,
+      });
+
+    try {
+      expect(created.status).toBe(201);
+      expect(created.body.data.initials).toBe("AP");
+      expect(created.body.data.services).toHaveLength(2);
+
+      const updated = await request(app)
+        .patch("/api/v1/admin/staff/" + created.body.data.id)
+        .set("Cookie", sessionCookie)
+        .send({
+          displayName: "Alex Demo",
+          serviceIds: serviceIds.slice(0, 1),
+        });
+
+      expect(updated.status).toBe(200);
+      expect(updated.body.data.initials).toBe("AD");
+      expect(updated.body.data.services).toHaveLength(1);
+    } finally {
+      if (created.body.data?.id) {
+        await prisma.staff.delete({ where: { id: created.body.data.id } });
+      }
+    }
+  });
+
   it("permite consultar y cancelar una reserva mediante su enlace", async () => {
     const app = createApp();
     const booking = await request(app)

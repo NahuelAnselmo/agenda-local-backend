@@ -13,6 +13,14 @@ const serviceBody = z.object({
 });
 
 const servicePatch = serviceBody.partial();
+const staffBody = z.object({
+  displayName: z.string().trim().min(2).max(80),
+  roleTitle: z.string().trim().max(80).nullable().optional(),
+  bio: z.string().trim().max(320).nullable().optional(),
+  serviceIds: z.array(z.string().min(1)).max(40),
+  active: z.boolean().optional(),
+});
+const staffPatch = staffBody.partial();
 const appointmentPatch = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"]),
 });
@@ -28,6 +36,26 @@ const availabilityBody = z.object({
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth);
+
+function initialsFor(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
+async function organizationOwnsServices(
+  organizationId: string,
+  serviceIds: string[],
+) {
+  const uniqueServiceIds = [...new Set(serviceIds)];
+  const count = await prisma.service.count({
+    where: { id: { in: uniqueServiceIds }, organizationId },
+  });
+  return count === uniqueServiceIds.length;
+}
 
 adminRouter.get("/dashboard", async (_request, response) => {
   const organizationId = response.locals.auth.organization.id as string;
@@ -205,31 +233,97 @@ adminRouter.patch("/appointments/:id", async (request, response) => {
   return response.json({ data: { id: request.params.id, ...parsed.data } });
 });
 
+adminRouter.post("/staff", async (request, response) => {
+  const parsed = staffBody.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      error: "Datos de profesional inválidos",
+      details: z.flattenError(parsed.error).fieldErrors,
+    });
+  }
+
+  const organizationId = response.locals.auth.organization.id as string;
+  const serviceIds = [...new Set(parsed.data.serviceIds)];
+  if (!(await organizationOwnsServices(organizationId, serviceIds))) {
+    return response.status(400).json({
+      error: "Uno o más servicios no pertenecen al negocio",
+    });
+  }
+
+  const staffCount = await prisma.staff.count({ where: { organizationId } });
+  const accents = ["terracotta", "sage", "sand"];
+  const member = await prisma.staff.create({
+    data: {
+      displayName: parsed.data.displayName,
+      roleTitle: parsed.data.roleTitle ?? null,
+      bio: parsed.data.bio ?? null,
+      initials: initialsFor(parsed.data.displayName),
+      accent: accents[staffCount % accents.length] ?? "sage",
+      active: parsed.data.active ?? true,
+      organizationId,
+      services: {
+        create: serviceIds.map((serviceId) => ({ serviceId })),
+      },
+    },
+    include: { services: true },
+  });
+
+  return response.status(201).json({ data: member });
+});
+
 adminRouter.patch("/staff/:id", async (request, response) => {
-  const parsed = z
-    .object({
-      displayName: z.string().trim().min(2).max(80).optional(),
-      roleTitle: z.string().trim().max(80).nullable().optional(),
-      active: z.boolean().optional(),
-    })
-    .safeParse(request.body);
+  const parsed = staffPatch.safeParse(request.body);
   if (!parsed.success) {
     return response.status(400).json({ error: "Datos de profesional inválidos" });
   }
 
   const organizationId = response.locals.auth.organization.id as string;
-  const data: Prisma.StaffUpdateManyMutationInput = {};
-  if (parsed.data.displayName !== undefined) {
-    data.displayName = parsed.data.displayName;
-  }
-  if (parsed.data.roleTitle !== undefined) data.roleTitle = parsed.data.roleTitle;
-  if (parsed.data.active !== undefined) data.active = parsed.data.active;
-  const result = await prisma.staff.updateMany({
+  const existing = await prisma.staff.findFirst({
     where: { id: request.params.id, organizationId },
-    data,
   });
-  if (result.count === 0) {
+  if (!existing) {
     return response.status(404).json({ error: "Profesional no encontrado" });
   }
-  return response.json({ data: { id: request.params.id, ...parsed.data } });
+
+  const serviceIds = parsed.data.serviceIds
+    ? [...new Set(parsed.data.serviceIds)]
+    : undefined;
+  if (
+    serviceIds &&
+    !(await organizationOwnsServices(organizationId, serviceIds))
+  ) {
+    return response.status(400).json({
+      error: "Uno o más servicios no pertenecen al negocio",
+    });
+  }
+
+  const member = await prisma.staff.update({
+    where: { id: existing.id },
+    data: {
+      ...(parsed.data.displayName !== undefined
+        ? {
+            displayName: parsed.data.displayName,
+            initials: initialsFor(parsed.data.displayName),
+          }
+        : {}),
+      ...(parsed.data.roleTitle !== undefined
+        ? { roleTitle: parsed.data.roleTitle }
+        : {}),
+      ...(parsed.data.bio !== undefined ? { bio: parsed.data.bio } : {}),
+      ...(parsed.data.active !== undefined
+        ? { active: parsed.data.active }
+        : {}),
+      ...(serviceIds
+        ? {
+            services: {
+              deleteMany: {},
+              create: serviceIds.map((serviceId) => ({ serviceId })),
+            },
+          }
+        : {}),
+    },
+    include: { services: true },
+  });
+
+  return response.json({ data: member });
 });
