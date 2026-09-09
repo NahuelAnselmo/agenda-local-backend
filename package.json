@@ -5,12 +5,15 @@
   "main": "dist/src/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "npm run prisma:generate && tsc",
     "start": "node dist/src/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prisma:generate": "prisma generate --config prisma7.config.ts",
-    "prisma:validate": "prisma validate --config prisma7.config.ts"
+    "prisma:validate": "prisma validate --config prisma7.config.ts",
+    "db:dev": "prisma dev -d -n agenda-local",
+    "db:migrate": "prisma migrate dev --config prisma7.config.ts",
+    "db:seed": "prisma db seed --config prisma7.config.ts"
   },
   "keywords": [
     "appointments",

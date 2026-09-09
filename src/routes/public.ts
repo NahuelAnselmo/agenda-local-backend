@@ -243,22 +243,18 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
   let appointment = null;
 
   for (const staff of eligibleStaff) {
-    appointment = await prisma.$transaction(async (transaction) => {
-      await transaction.$executeRawUnsafe(
-        "SELECT pg_advisory_xact_lock(hashtext($1))",
-        staff.id + ":" + date,
-      );
-      const conflict = await transaction.appointment.findFirst({
-        where: {
-          staffId: staff.id,
-          status: { in: ["PENDING", "CONFIRMED"] },
-          startAt: { lt: range.endAt },
-          endAt: { gt: range.startAt },
-        },
-      });
-      if (conflict) return null;
+    const conflict = await prisma.appointment.findFirst({
+      where: {
+        staffId: staff.id,
+        status: { in: ["PENDING", "CONFIRMED"] },
+        startAt: { lt: range.endAt },
+        endAt: { gt: range.startAt },
+      },
+    });
+    if (conflict) continue;
 
-      return transaction.appointment.create({
+    try {
+      appointment = await prisma.appointment.create({
         data: {
           organizationId: business.id,
           serviceId: service.id,
@@ -273,7 +269,9 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
         },
         include: { service: true, staff: true, organization: true },
       });
-    });
+    } catch (error) {
+      if (!String(error).includes("appointment_no_staff_overlap")) throw error;
+    }
     if (appointment) break;
   }
 

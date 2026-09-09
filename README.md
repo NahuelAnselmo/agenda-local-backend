@@ -20,7 +20,10 @@ La API queda disponible en http://localhost:4000/api/v1.
 - npm test: ejecuta las pruebas.
 - npm run prisma:validate: valida el modelo PostgreSQL.
 - npm run prisma:generate: genera Prisma Client.
-- npm run build: compila a dist.
+- npm run build: genera Prisma Client y compila a dist.
+- npm run db:dev: inicia PostgreSQL local.
+- npm run db:migrate: aplica migraciones pendientes.
+- npm run db:seed: restaura los datos ficticios.
 
 La carga inicial crea Norte Studio, cuatro servicios, tres profesionales,
 horarios semanales, turnos de muestra y un usuario propietario:

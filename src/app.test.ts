@@ -1,5 +1,5 @@
 import request from "supertest";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import { prisma } from "./lib/prisma.js";
 
@@ -8,10 +8,6 @@ describe("API pública de reservas", () => {
     await prisma.appointment.deleteMany({
       where: { customerEmail: "cliente@example.com" },
     });
-  });
-
-  afterAll(async () => {
-    await prisma.$disconnect();
   });
 
   it("expone el negocio ficticio con servicios y profesionales", async () => {
