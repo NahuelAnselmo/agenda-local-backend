@@ -33,3 +33,17 @@ horarios semanales, turnos de muestra y un usuario propietario:
 
 El esquema contempla organizaciones, usuarios, membresías, profesionales,
 servicios, disponibilidad, ausencias, sesiones y turnos.
+
+## Flujos disponibles
+
+- Consulta pública del negocio, servicios y profesionales.
+- Cálculo de disponibilidad y creación de reservas sin superposiciones.
+- Comprobante público y cancelación mediante token seguro.
+- Autenticación con sesión HTTP-only para el panel.
+- Métricas y agenda con búsqueda por cliente, profesional, estado y fecha.
+- Confirmación, cancelación, finalización y reprogramación validada de turnos.
+- Gestión del catálogo, equipo, asignación de servicios, horarios y perfil del
+  negocio.
+
+Todas las operaciones administrativas se limitan a la organización de la
+sesión. Los turnos cancelados se conservan para mantener historial operativo.
