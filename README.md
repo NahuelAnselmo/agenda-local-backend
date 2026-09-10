@@ -31,6 +31,14 @@ horarios semanales, turnos de muestra y un usuario propietario:
 - Email: admin@nortestudio.demo
 - Contraseña: Demo1234!
 
+También crea un acceso limitado para probar la agenda de un profesional:
+
+- Email: barbero@nortestudio.demo
+- Contraseña: Barbero123!
+
+El propietario puede crear, renovar o revocar estos accesos desde la gestión
+del equipo. Cada profesional ve únicamente sus propios turnos.
+
 El esquema contempla organizaciones, usuarios, membresías, profesionales,
 servicios, disponibilidad, ausencias, sesiones y turnos.
 

@@ -162,6 +162,34 @@ async function main() {
     });
   }
 
+  const staffAccessUser = await prisma.user.upsert({
+    where: { email: "barbero@nortestudio.demo" },
+    update: { name: "Nico Ramos" },
+    create: {
+      name: "Nico Ramos",
+      email: "barbero@nortestudio.demo",
+      passwordHash: await hashPassword("Barbero123!"),
+    },
+  });
+  await prisma.membership.upsert({
+    where: {
+      userId_organizationId: {
+        userId: staffAccessUser.id,
+        organizationId: organization.id,
+      },
+    },
+    update: { role: "STAFF" },
+    create: {
+      userId: staffAccessUser.id,
+      organizationId: organization.id,
+      role: "STAFF",
+    },
+  });
+  await prisma.staff.update({
+    where: { id: "nico-ramos" },
+    data: { userId: staffAccessUser.id },
+  });
+
   if ((await prisma.weeklyAvailability.count()) === 0) {
     await prisma.weeklyAvailability.createMany({
       data: [1, 2, 3, 4, 5, 6].flatMap((weekday) => [
