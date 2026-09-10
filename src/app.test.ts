@@ -94,6 +94,53 @@ describe("API pública de reservas", () => {
     expect(dashboard.body.data.services).toHaveLength(4);
   });
 
+  it("actualiza las credenciales validando la contraseña actual", async () => {
+    const app = createApp();
+    const original = await prisma.user.findUniqueOrThrow({
+      where: { email: "admin@nortestudio.demo" },
+    });
+    const login = await request(app).post("/api/v1/auth/login").send({
+      email: original.email,
+      password: "Demo1234!",
+    });
+    const sessionCookie = login.headers["set-cookie"];
+    if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+
+    try {
+      const rejected = await request(app)
+        .patch("/api/v1/auth/me/credentials")
+        .set("Cookie", sessionCookie)
+        .send({ currentPassword: "Incorrecta123", name: "Nombre rechazado" });
+      expect(rejected.status).toBe(401);
+
+      const updated = await request(app)
+        .patch("/api/v1/auth/me/credentials")
+        .set("Cookie", sessionCookie)
+        .send({
+          currentPassword: "Demo1234!",
+          email: "propietario@nortestudio.demo",
+          newPassword: "NuevaClave123!",
+        });
+      expect(updated.status).toBe(200);
+      expect(updated.body.data.user.email).toBe("propietario@nortestudio.demo");
+
+      const nextLogin = await request(app).post("/api/v1/auth/login").send({
+        email: "propietario@nortestudio.demo",
+        password: "NuevaClave123!",
+      });
+      expect(nextLogin.status).toBe(200);
+    } finally {
+      await prisma.user.update({
+        where: { id: original.id },
+        data: {
+          name: original.name,
+          email: original.email,
+          passwordHash: original.passwordHash,
+        },
+      });
+    }
+  });
+
   it("crea profesionales y administra sus servicios asignados", async () => {
     const app = createApp();
     const login = await request(app).post("/api/v1/auth/login").send({

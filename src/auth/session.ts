@@ -77,6 +77,7 @@ export async function requireAuth(
   }
 
   response.locals.auth = {
+    session,
     user: session.user,
     membership,
     organization: membership.organization,
