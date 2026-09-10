@@ -66,6 +66,7 @@ export async function requireAuth(
             include: { organization: true },
             take: 1,
           },
+          staffProfile: true,
         },
       },
     },

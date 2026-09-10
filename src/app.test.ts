@@ -5,8 +5,22 @@ import { prisma } from "./lib/prisma.js";
 
 describe("API pública de reservas", () => {
   beforeEach(async () => {
+    const temporaryStaff = await prisma.staff.findMany({
+      where: { displayName: "Barbero con Acceso" },
+      select: { id: true },
+    });
+    const temporaryStaffIds = temporaryStaff.map(({ id }) => id);
     await prisma.appointment.deleteMany({
-      where: { customerEmail: "cliente@example.com" },
+      where: {
+        OR: [
+          { customerEmail: "cliente@example.com" },
+          { staffId: { in: temporaryStaffIds } },
+        ],
+      },
+    });
+    await prisma.staff.deleteMany({ where: { id: { in: temporaryStaffIds } } });
+    await prisma.user.deleteMany({
+      where: { email: "barbero.temporal@nortestudio.demo" },
     });
   });
 
@@ -227,6 +241,86 @@ describe("API pública de reservas", () => {
       expect(restored.body.data.active).toBe(true);
     } finally {
       await prisma.staff.delete({ where: { id: member.id } });
+    }
+  });
+
+  it("da acceso individual y limita al profesional a su propia agenda", async () => {
+    const app = createApp();
+    const ownerLogin = await request(app).post("/api/v1/auth/login").send({
+      email: "admin@nortestudio.demo",
+      password: "Demo1234!",
+    });
+    const ownerCookie = ownerLogin.headers["set-cookie"];
+    if (!ownerCookie) throw new Error("La respuesta no creó una sesión");
+
+    const created = await request(app)
+      .post("/api/v1/admin/staff")
+      .set("Cookie", ownerCookie)
+      .send({
+        displayName: "Barbero con Acceso",
+        roleTitle: "Barbero",
+        serviceIds: ["classic-cut"],
+      });
+    expect(created.status).toBe(201);
+    const memberId = created.body.data.id as string;
+    let accessUserId: string | undefined;
+
+    try {
+      const access = await request(app)
+        .put("/api/v1/admin/staff/" + memberId + "/access")
+        .set("Cookie", ownerCookie)
+        .send({
+          email: "barbero.temporal@nortestudio.demo",
+          temporaryPassword: "Temporal123!",
+        });
+      expect(access.status).toBe(200);
+      accessUserId = access.body.data.user.id;
+
+      const booking = await request(app)
+        .post("/api/v1/businesses/norte-studio/appointments")
+        .send({
+          serviceId: "classic-cut",
+          staffId: memberId,
+          date: "2027-03-05",
+          time: "10:00",
+          customer: {
+            name: "Cliente Demo",
+            email: "cliente@example.com",
+            phone: "1155550101",
+          },
+        });
+      expect(booking.status).toBe(201);
+
+      const staffLogin = await request(app).post("/api/v1/auth/login").send({
+        email: "barbero.temporal@nortestudio.demo",
+        password: "Temporal123!",
+      });
+      const staffCookie = staffLogin.headers["set-cookie"];
+      if (!staffCookie) throw new Error("La respuesta no creó una sesión");
+
+      const dashboard = await request(app)
+        .get("/api/v1/admin/dashboard")
+        .set("Cookie", staffCookie);
+      expect(dashboard.status).toBe(200);
+      expect(dashboard.body.data.account.role).toBe("STAFF");
+      expect(dashboard.body.data.account.staffId).toBe(memberId);
+      expect(
+        dashboard.body.data.appointments.every(
+          (appointment: { staffId: string }) => appointment.staffId === memberId,
+        ),
+      ).toBe(true);
+
+      const forbidden = await request(app)
+        .patch("/api/v1/admin/business")
+        .set("Cookie", staffCookie)
+        .send({ name: "Cambio no autorizado" });
+      expect(forbidden.status).toBe(403);
+    } finally {
+      await prisma.appointment.deleteMany({ where: { staffId: memberId } });
+      await prisma.staff.delete({ where: { id: memberId } });
+      if (accessUserId) {
+        await prisma.user.delete({ where: { id: accessUserId } });
+      }
     }
   });
 

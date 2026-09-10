@@ -1,6 +1,7 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
+import { hashPassword } from "../auth/password.js";
 import {
   generateTimeSlots,
   toAppointmentRange,
@@ -26,6 +27,10 @@ const staffBody = z.object({
   active: z.boolean().optional(),
 });
 const staffPatch = staffBody.partial();
+const staffAccessBody = z.object({
+  email: z.email(),
+  temporaryPassword: z.string().min(8).max(128),
+});
 const businessPatch = z.object({
   name: z.string().trim().min(2).max(100).optional(),
   category: z.string().trim().min(2).max(100).optional(),
@@ -82,6 +87,26 @@ const availabilityBody = z.object({
 export const adminRouter = Router();
 adminRouter.use(requireAuth);
 
+function requireOwner(_request: Request, response: Response, next: NextFunction) {
+  if (response.locals.auth.membership.role !== "OWNER") {
+    return response.status(403).json({ error: "Permiso de propietario requerido" });
+  }
+  return next();
+}
+
+function staffScope(response: Response) {
+  if (response.locals.auth.membership.role === "OWNER") return null;
+  const profile = response.locals.auth.user.staffProfile;
+  if (
+    !profile ||
+    profile.organizationId !== response.locals.auth.organization.id ||
+    profile.archivedAt
+  ) {
+    return undefined;
+  }
+  return profile.id as string;
+}
+
 function initialsFor(name: string) {
   return name
     .split(/\s+/)
@@ -104,6 +129,11 @@ async function organizationOwnsServices(
 
 adminRouter.get("/dashboard", async (_request, response) => {
   const organizationId = response.locals.auth.organization.id as string;
+  const scopedStaffId = staffScope(response);
+  if (scopedStaffId === undefined) {
+    return response.status(403).json({ error: "El acceso del profesional no está activo" });
+  }
+  const appointmentScope = scopedStaffId ? { staffId: scopedStaffId } : {};
   const now = new Date();
   const endOfWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -112,6 +142,7 @@ adminRouter.get("/dashboard", async (_request, response) => {
       prisma.appointment.findMany({
         where: {
           organizationId,
+          ...appointmentScope,
           startAt: { gte: now },
           status: { in: ["PENDING", "CONFIRMED"] },
         },
@@ -120,12 +151,31 @@ adminRouter.get("/dashboard", async (_request, response) => {
         take: 12,
       }),
       prisma.service.findMany({
-        where: { organizationId },
+        where: {
+          organizationId,
+          ...(scopedStaffId
+            ? { staff: { some: { staffId: scopedStaffId } } }
+            : {}),
+        },
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       }),
       prisma.staff.findMany({
-        where: { organizationId },
-        include: { services: true },
+        where: {
+          organizationId,
+          ...(scopedStaffId ? { id: scopedStaffId } : {}),
+        },
+        include: {
+          services: true,
+          user: {
+            select: {
+              email: true,
+              memberships: {
+                where: { organizationId },
+                select: { id: true },
+              },
+            },
+          },
+        },
         orderBy: { displayName: "asc" },
       }),
       prisma.weeklyAvailability.findMany({
@@ -135,6 +185,7 @@ adminRouter.get("/dashboard", async (_request, response) => {
       prisma.appointment.count({
         where: {
           organizationId,
+          ...appointmentScope,
           startAt: { gte: now, lt: endOfWeek },
           status: { in: ["PENDING", "CONFIRMED", "COMPLETED"] },
         },
@@ -142,6 +193,7 @@ adminRouter.get("/dashboard", async (_request, response) => {
       prisma.appointment.findMany({
         where: {
           organizationId,
+          ...appointmentScope,
           status: "COMPLETED",
           startAt: { gte: new Date(now.getFullYear(), now.getMonth(), 1) },
         },
@@ -159,10 +211,19 @@ adminRouter.get("/dashboard", async (_request, response) => {
       metrics: {
         weekAppointments: weekCount,
         activeServices: services.filter((service) => service.active).length,
-        activeStaff: staff.filter((member) => member.active).length,
+        activeStaff: staff.filter((member) => member.active && !member.archivedAt).length,
         monthlyRevenueInCents: revenueInCents,
       },
       business: response.locals.auth.organization,
+      account: {
+        user: {
+          id: response.locals.auth.user.id,
+          name: response.locals.auth.user.name,
+          email: response.locals.auth.user.email,
+        },
+        role: response.locals.auth.membership.role,
+        staffId: scopedStaffId,
+      },
       appointments,
       services,
       staff,
@@ -171,7 +232,7 @@ adminRouter.get("/dashboard", async (_request, response) => {
   });
 });
 
-adminRouter.patch("/business", async (request, response) => {
+adminRouter.patch("/business", requireOwner, async (request, response) => {
   const parsed = businessPatch.safeParse(request.body);
   if (!parsed.success) {
     return response.status(400).json({
@@ -215,11 +276,15 @@ adminRouter.get("/appointments", async (request, response) => {
   }
 
   const organizationId = response.locals.auth.organization.id as string;
+  const scopedStaffId = staffScope(response);
+  if (scopedStaffId === undefined) {
+    return response.status(403).json({ error: "El acceso del profesional no está activo" });
+  }
   const { status, staffId, from, to, q } = parsed.data;
   const where: Prisma.AppointmentWhereInput = {
     organizationId,
     ...(status ? { status } : {}),
-    ...(staffId ? { staffId } : {}),
+    ...(scopedStaffId ? { staffId: scopedStaffId } : staffId ? { staffId } : {}),
     ...(from || to
       ? {
           startAt: {
@@ -248,7 +313,7 @@ adminRouter.get("/appointments", async (request, response) => {
   return response.json({ data: appointments });
 });
 
-adminRouter.put("/availability", async (request, response) => {
+adminRouter.put("/availability", requireOwner, async (request, response) => {
   const parsed = availabilityBody.safeParse(request.body);
   if (!parsed.success) {
     return response.status(400).json({ error: "Horarios inválidos" });
@@ -279,7 +344,7 @@ adminRouter.put("/availability", async (request, response) => {
   return response.json({ data: parsed.data.intervals });
 });
 
-adminRouter.post("/services", async (request, response) => {
+adminRouter.post("/services", requireOwner, async (request, response) => {
   const parsed = serviceBody.safeParse(request.body);
   if (!parsed.success) {
     return response.status(400).json({
@@ -307,7 +372,7 @@ adminRouter.post("/services", async (request, response) => {
   return response.status(201).json({ data: service });
 });
 
-adminRouter.patch("/services/:id", async (request, response) => {
+adminRouter.patch("/services/:id", requireOwner, async (request, response) => {
   const parsed = servicePatch.safeParse(request.body);
   if (!parsed.success) {
     return response.status(400).json({ error: "Datos de servicio inválidos" });
@@ -327,14 +392,14 @@ adminRouter.patch("/services/:id", async (request, response) => {
   }
   if (parsed.data.active !== undefined) data.active = parsed.data.active;
   const result = await prisma.service.updateMany({
-    where: { id: request.params.id, organizationId },
+    where: { id: String(request.params.id), organizationId },
     data,
   });
   if (result.count === 0) {
     return response.status(404).json({ error: "Servicio no encontrado" });
   }
   const service = await prisma.service.findUnique({
-    where: { id: request.params.id },
+    where: { id: String(request.params.id) },
   });
   return response.json({ data: service });
 });
@@ -346,8 +411,16 @@ adminRouter.patch("/appointments/:id", async (request, response) => {
   }
 
   const organizationId = response.locals.auth.organization.id as string;
+  const scopedStaffId = staffScope(response);
+  if (scopedStaffId === undefined) {
+    return response.status(403).json({ error: "El acceso del profesional no está activo" });
+  }
   const appointment = await prisma.appointment.findFirst({
-    where: { id: request.params.id, organizationId },
+    where: {
+      id: String(request.params.id),
+      organizationId,
+      ...(scopedStaffId ? { staffId: scopedStaffId } : {}),
+    },
   });
   if (!appointment) {
     return response.status(404).json({ error: "Turno no encontrado" });
@@ -362,6 +435,11 @@ adminRouter.patch("/appointments/:id", async (request, response) => {
 
   if (parsed.data.schedule) {
     const { serviceId, staffId, date, time } = parsed.data.schedule;
+    if (scopedStaffId && staffId !== scopedStaffId) {
+      return response.status(403).json({
+        error: "Sólo podés reprogramar turnos de tu propia agenda",
+      });
+    }
     const [service, staff] = await Promise.all([
       prisma.service.findFirst({
         where: { id: serviceId, organizationId, active: true },
@@ -448,7 +526,7 @@ adminRouter.patch("/appointments/:id", async (request, response) => {
   }
 });
 
-adminRouter.post("/staff", async (request, response) => {
+adminRouter.post("/staff", requireOwner, async (request, response) => {
   const parsed = staffBody.safeParse(request.body);
   if (!parsed.success) {
     return response.status(400).json({
@@ -486,7 +564,7 @@ adminRouter.post("/staff", async (request, response) => {
   return response.status(201).json({ data: member });
 });
 
-adminRouter.patch("/staff/:id", async (request, response) => {
+adminRouter.patch("/staff/:id", requireOwner, async (request, response) => {
   const parsed = staffPatch.safeParse(request.body);
   if (!parsed.success) {
     return response.status(400).json({ error: "Datos de profesional inválidos" });
@@ -494,7 +572,7 @@ adminRouter.patch("/staff/:id", async (request, response) => {
 
   const organizationId = response.locals.auth.organization.id as string;
   const existing = await prisma.staff.findFirst({
-    where: { id: request.params.id, organizationId },
+    where: { id: String(request.params.id), organizationId },
   });
   if (!existing) {
     return response.status(404).json({ error: "Profesional no encontrado" });
@@ -543,10 +621,14 @@ adminRouter.patch("/staff/:id", async (request, response) => {
   return response.json({ data: member });
 });
 
-adminRouter.delete("/staff/:id", async (request, response) => {
+adminRouter.delete("/staff/:id", requireOwner, async (request, response) => {
   const organizationId = response.locals.auth.organization.id as string;
   const member = await prisma.staff.findFirst({
-    where: { id: request.params.id, organizationId, archivedAt: null },
+    where: {
+      id: String(request.params.id),
+      organizationId,
+      archivedAt: null,
+    },
   });
   if (!member) {
     return response.status(404).json({ error: "Profesional no encontrado" });
@@ -568,10 +650,14 @@ adminRouter.delete("/staff/:id", async (request, response) => {
   return response.status(204).send();
 });
 
-adminRouter.post("/staff/:id/restore", async (request, response) => {
+adminRouter.post("/staff/:id/restore", requireOwner, async (request, response) => {
   const organizationId = response.locals.auth.organization.id as string;
   const member = await prisma.staff.findFirst({
-    where: { id: request.params.id, organizationId, archivedAt: { not: null } },
+    where: {
+      id: String(request.params.id),
+      organizationId,
+      archivedAt: { not: null },
+    },
   });
   if (!member) {
     return response.status(404).json({ error: "Profesional no encontrado" });
@@ -583,4 +669,81 @@ adminRouter.post("/staff/:id/restore", async (request, response) => {
     include: { services: true },
   });
   return response.json({ data: restored });
+});
+
+adminRouter.put("/staff/:id/access", requireOwner, async (request, response) => {
+  const parsed = staffAccessBody.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({ error: "Datos de acceso inválidos" });
+  }
+
+  const organizationId = response.locals.auth.organization.id as string;
+  const member = await prisma.staff.findFirst({
+    where: {
+      id: String(request.params.id),
+      organizationId,
+      archivedAt: null,
+    },
+  });
+  if (!member) {
+    return response.status(404).json({ error: "Profesional no encontrado" });
+  }
+
+  const email = parsed.data.email.toLowerCase();
+  const emailOwner = await prisma.user.findUnique({ where: { email } });
+  if (emailOwner && emailOwner.id !== member.userId) {
+    return response.status(409).json({ error: "Ese email ya está en uso" });
+  }
+
+  const passwordHash = await hashPassword(parsed.data.temporaryPassword);
+  const user = await prisma.$transaction(async (transaction) => {
+    const accessUser = member.userId
+      ? await transaction.user.update({
+          where: { id: member.userId },
+          data: { name: member.displayName, email, passwordHash },
+        })
+      : await transaction.user.create({
+          data: { name: member.displayName, email, passwordHash },
+        });
+
+    await transaction.membership.upsert({
+      where: {
+        userId_organizationId: {
+          userId: accessUser.id,
+          organizationId,
+        },
+      },
+      update: { role: "STAFF" },
+      create: { userId: accessUser.id, organizationId, role: "STAFF" },
+    });
+    await transaction.staff.update({
+      where: { id: member.id },
+      data: { userId: accessUser.id },
+    });
+    await transaction.session.deleteMany({ where: { userId: accessUser.id } });
+    return accessUser;
+  });
+
+  return response.json({
+    data: { user: { id: user.id, name: user.name, email: user.email } },
+  });
+});
+
+adminRouter.delete("/staff/:id/access", requireOwner, async (request, response) => {
+  const organizationId = response.locals.auth.organization.id as string;
+  const member = await prisma.staff.findFirst({
+    where: { id: String(request.params.id), organizationId },
+  });
+  if (!member) {
+    return response.status(404).json({ error: "Profesional no encontrado" });
+  }
+  if (member.userId) {
+    await prisma.$transaction([
+      prisma.membership.deleteMany({
+        where: { userId: member.userId, organizationId },
+      }),
+      prisma.session.deleteMany({ where: { userId: member.userId } }),
+    ]);
+  }
+  return response.status(204).send();
 });
