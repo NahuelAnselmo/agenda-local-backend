@@ -542,3 +542,45 @@ adminRouter.patch("/staff/:id", async (request, response) => {
 
   return response.json({ data: member });
 });
+
+adminRouter.delete("/staff/:id", async (request, response) => {
+  const organizationId = response.locals.auth.organization.id as string;
+  const member = await prisma.staff.findFirst({
+    where: { id: request.params.id, organizationId, archivedAt: null },
+  });
+  if (!member) {
+    return response.status(404).json({ error: "Profesional no encontrado" });
+  }
+
+  await prisma.$transaction(async (transaction) => {
+    if (member.userId) {
+      await transaction.session.deleteMany({ where: { userId: member.userId } });
+      await transaction.membership.deleteMany({
+        where: { userId: member.userId, organizationId },
+      });
+    }
+    await transaction.staff.update({
+      where: { id: member.id },
+      data: { active: false, archivedAt: new Date() },
+    });
+  });
+
+  return response.status(204).send();
+});
+
+adminRouter.post("/staff/:id/restore", async (request, response) => {
+  const organizationId = response.locals.auth.organization.id as string;
+  const member = await prisma.staff.findFirst({
+    where: { id: request.params.id, organizationId, archivedAt: { not: null } },
+  });
+  if (!member) {
+    return response.status(404).json({ error: "Profesional no encontrado" });
+  }
+
+  const restored = await prisma.staff.update({
+    where: { id: member.id },
+    data: { active: true, archivedAt: null },
+    include: { services: true },
+  });
+  return response.json({ data: restored });
+});

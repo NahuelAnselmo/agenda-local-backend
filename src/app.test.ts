@@ -189,6 +189,47 @@ describe("API pública de reservas", () => {
     }
   });
 
+  it("archiva y restaura profesionales sin borrar su historial", async () => {
+    const app = createApp();
+    const login = await request(app).post("/api/v1/auth/login").send({
+      email: "admin@nortestudio.demo",
+      password: "Demo1234!",
+    });
+    const sessionCookie = login.headers["set-cookie"];
+    if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+    const organization = await prisma.organization.findUniqueOrThrow({
+      where: { slug: "norte-studio" },
+    });
+    const member = await prisma.staff.create({
+      data: {
+        displayName: "Profesional Temporal",
+        organizationId: organization.id,
+      },
+    });
+
+    try {
+      const archived = await request(app)
+        .delete("/api/v1/admin/staff/" + member.id)
+        .set("Cookie", sessionCookie);
+      expect(archived.status).toBe(204);
+
+      const stored = await prisma.staff.findUniqueOrThrow({
+        where: { id: member.id },
+      });
+      expect(stored.active).toBe(false);
+      expect(stored.archivedAt).not.toBeNull();
+
+      const restored = await request(app)
+        .post("/api/v1/admin/staff/" + member.id + "/restore")
+        .set("Cookie", sessionCookie);
+      expect(restored.status).toBe(200);
+      expect(restored.body.data.archivedAt).toBeNull();
+      expect(restored.body.data.active).toBe(true);
+    } finally {
+      await prisma.staff.delete({ where: { id: member.id } });
+    }
+  });
+
   it("actualiza los datos públicos del negocio", async () => {
     const app = createApp();
     const login = await request(app).post("/api/v1/auth/login").send({

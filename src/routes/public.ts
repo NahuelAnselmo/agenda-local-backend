@@ -80,7 +80,7 @@ publicRouter.get("/businesses/:slug", async (request, response) => {
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       },
       staff: {
-        where: { active: true },
+        where: { active: true, archivedAt: null },
         include: { services: true },
         orderBy: { displayName: "asc" },
       },
@@ -133,6 +133,7 @@ publicRouter.get("/businesses/:slug/availability", async (request, response) => 
     where: {
       organizationId: business.id,
       active: true,
+      archivedAt: null,
       ...(parsed.data.staffId ? { id: parsed.data.staffId } : {}),
       services: { some: { serviceId: service.id } },
     },
@@ -223,6 +224,7 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
     where: {
       organizationId: business.id,
       active: true,
+      archivedAt: null,
       ...(staffId ? { id: staffId } : {}),
       services: { some: { serviceId: service.id } },
     },

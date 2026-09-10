@@ -93,6 +93,7 @@ model Staff {
   initials        String?
   accent          String?
   active         Boolean              @default(true)
+  archivedAt     DateTime?            @db.Timestamptz(3)
   userId         String?              @unique
   organizationId String
   user           User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -103,6 +104,7 @@ model Staff {
   appointments   Appointment[]
 
   @@index([organizationId, active])
+  @@index([organizationId, archivedAt])
 }
 
 model Service {
