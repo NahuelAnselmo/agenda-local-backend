@@ -44,6 +44,8 @@ servicios, disponibilidad, ausencias, sesiones y turnos.
 - Confirmación, cancelación, finalización y reprogramación validada de turnos.
 - Gestión del catálogo, equipo, asignación de servicios, horarios y perfil del
   negocio.
+- Accesos individuales: el propietario administra el negocio completo y cada
+  profesional queda limitado a sus propios turnos.
 
 Todas las operaciones administrativas se limitan a la organización de la
 sesión. Los turnos cancelados se conservan para mantener historial operativo.
