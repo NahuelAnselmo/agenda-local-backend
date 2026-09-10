@@ -176,6 +176,44 @@ describe("API pública de reservas", () => {
     }
   });
 
+  it("filtra la agenda por profesional, estado y cliente", async () => {
+    const app = createApp();
+    const booking = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send({
+        serviceId: "classic-cut",
+        staffId: "fran-lopez",
+        date: "2027-02-05",
+        time: "12:00",
+        customer: {
+          name: "Cliente Demo",
+          email: "cliente@example.com",
+          phone: "1155550101",
+        },
+      });
+    expect(booking.status).toBe(201);
+
+    const login = await request(app).post("/api/v1/auth/login").send({
+      email: "admin@nortestudio.demo",
+      password: "Demo1234!",
+    });
+    const sessionCookie = login.headers["set-cookie"];
+    if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+
+    const agenda = await request(app)
+      .get("/api/v1/admin/appointments")
+      .query({
+        staffId: "fran-lopez",
+        status: "CONFIRMED",
+        q: "Cliente Demo",
+      })
+      .set("Cookie", sessionCookie);
+
+    expect(agenda.status).toBe(200);
+    expect(agenda.body.data).toHaveLength(1);
+    expect(agenda.body.data[0].customerEmail).toBe("cliente@example.com");
+  });
+
   it("permite consultar y cancelar una reserva mediante su enlace", async () => {
     const app = createApp();
     const booking = await request(app)

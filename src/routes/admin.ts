@@ -30,8 +30,27 @@ const businessPatch = z.object({
   email: z.union([z.email(), z.literal(""), z.null()]).optional(),
   scheduleText: z.string().trim().max(120).nullable().optional(),
 });
+const appointmentStatus = z.enum([
+  "PENDING",
+  "CONFIRMED",
+  "CANCELLED",
+  "COMPLETED",
+  "NO_SHOW",
+]);
+const appointmentQuery = z
+  .object({
+    status: appointmentStatus.optional(),
+    staffId: z.string().min(1).optional(),
+    from: z.iso.datetime().optional(),
+    to: z.iso.datetime().optional(),
+    q: z.string().trim().max(100).optional(),
+  })
+  .refine(
+    ({ from, to }) => !from || !to || new Date(from) <= new Date(to),
+    { message: "El rango de fechas es inválido" },
+  );
 const appointmentPatch = z.object({
-  status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"]),
+  status: appointmentStatus,
 });
 const availabilityBody = z.object({
   intervals: z.array(
@@ -170,6 +189,46 @@ adminRouter.patch("/business", async (request, response) => {
   });
 
   return response.json({ data: business });
+});
+
+adminRouter.get("/appointments", async (request, response) => {
+  const parsed = appointmentQuery.safeParse(request.query);
+  if (!parsed.success) {
+    return response.status(400).json({ error: "Filtros de agenda inválidos" });
+  }
+
+  const organizationId = response.locals.auth.organization.id as string;
+  const { status, staffId, from, to, q } = parsed.data;
+  const where: Prisma.AppointmentWhereInput = {
+    organizationId,
+    ...(status ? { status } : {}),
+    ...(staffId ? { staffId } : {}),
+    ...(from || to
+      ? {
+          startAt: {
+            ...(from ? { gte: new Date(from) } : {}),
+            ...(to ? { lte: new Date(to) } : {}),
+          },
+        }
+      : {}),
+    ...(q
+      ? {
+          OR: [
+            { customerName: { contains: q, mode: "insensitive" } },
+            { customerEmail: { contains: q, mode: "insensitive" } },
+            { customerPhone: { contains: q } },
+          ],
+        }
+      : {}),
+  };
+  const appointments = await prisma.appointment.findMany({
+    where,
+    include: { service: true, staff: true },
+    orderBy: { startAt: "asc" },
+    take: 100,
+  });
+
+  return response.json({ data: appointments });
 });
 
 adminRouter.put("/availability", async (request, response) => {
