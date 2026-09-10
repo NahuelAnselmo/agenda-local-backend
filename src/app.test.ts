@@ -142,6 +142,40 @@ describe("API pública de reservas", () => {
     }
   });
 
+  it("actualiza los datos públicos del negocio", async () => {
+    const app = createApp();
+    const login = await request(app).post("/api/v1/auth/login").send({
+      email: "admin@nortestudio.demo",
+      password: "Demo1234!",
+    });
+    const sessionCookie = login.headers["set-cookie"];
+    if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+
+    const original = await prisma.organization.findUniqueOrThrow({
+      where: { slug: "norte-studio" },
+    });
+
+    try {
+      const updated = await request(app)
+        .patch("/api/v1/admin/business")
+        .set("Cookie", sessionCookie)
+        .send({ address: "Dirección temporal 123", phone: "+54 11 4444-5555" });
+
+      expect(updated.status).toBe(200);
+      expect(updated.body.data.address).toBe("Dirección temporal 123");
+
+      const publicBusiness = await request(app).get(
+        "/api/v1/businesses/norte-studio",
+      );
+      expect(publicBusiness.body.data.phone).toBe("+54 11 4444-5555");
+    } finally {
+      await prisma.organization.update({
+        where: { id: original.id },
+        data: { address: original.address, phone: original.phone },
+      });
+    }
+  });
+
   it("permite consultar y cancelar una reserva mediante su enlace", async () => {
     const app = createApp();
     const booking = await request(app)

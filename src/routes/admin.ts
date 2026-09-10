@@ -21,6 +21,15 @@ const staffBody = z.object({
   active: z.boolean().optional(),
 });
 const staffPatch = staffBody.partial();
+const businessPatch = z.object({
+  name: z.string().trim().min(2).max(100).optional(),
+  category: z.string().trim().min(2).max(100).optional(),
+  address: z.string().trim().max(160).nullable().optional(),
+  location: z.string().trim().max(120).nullable().optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
+  email: z.union([z.email(), z.literal(""), z.null()]).optional(),
+  scheduleText: z.string().trim().max(120).nullable().optional(),
+});
 const appointmentPatch = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"]),
 });
@@ -117,12 +126,50 @@ adminRouter.get("/dashboard", async (_request, response) => {
         activeStaff: staff.filter((member) => member.active).length,
         monthlyRevenueInCents: revenueInCents,
       },
+      business: response.locals.auth.organization,
       appointments,
       services,
       staff,
       availability,
     },
   });
+});
+
+adminRouter.patch("/business", async (request, response) => {
+  const parsed = businessPatch.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      error: "Datos del negocio inválidos",
+      details: z.flattenError(parsed.error).fieldErrors,
+    });
+  }
+
+  const organizationId = response.locals.auth.organization.id as string;
+  const data: Prisma.OrganizationUpdateInput = {
+    ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+    ...(parsed.data.category !== undefined
+      ? { category: parsed.data.category }
+      : {}),
+    ...(parsed.data.address !== undefined
+      ? { address: parsed.data.address }
+      : {}),
+    ...(parsed.data.location !== undefined
+      ? { location: parsed.data.location }
+      : {}),
+    ...(parsed.data.phone !== undefined ? { phone: parsed.data.phone } : {}),
+    ...(parsed.data.email !== undefined
+      ? { email: parsed.data.email || null }
+      : {}),
+    ...(parsed.data.scheduleText !== undefined
+      ? { scheduleText: parsed.data.scheduleText }
+      : {}),
+  };
+  const business = await prisma.organization.update({
+    where: { id: organizationId },
+    data,
+  });
+
+  return response.json({ data: business });
 });
 
 adminRouter.put("/availability", async (request, response) => {
