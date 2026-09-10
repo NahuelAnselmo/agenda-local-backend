@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
+import {
+  generateTimeSlots,
+  toAppointmentRange,
+  weekdayForDate,
+} from "../data/demo.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -49,9 +54,21 @@ const appointmentQuery = z
     ({ from, to }) => !from || !to || new Date(from) <= new Date(to),
     { message: "El rango de fechas es inválido" },
   );
-const appointmentPatch = z.object({
-  status: appointmentStatus,
-});
+const appointmentPatch = z
+  .object({
+    status: appointmentStatus.optional(),
+    schedule: z
+      .object({
+        serviceId: z.string().min(1),
+        staffId: z.string().min(1),
+        date: z.iso.date(),
+        time: z.string().regex(/^\d{2}:\d{2}$/),
+      })
+      .optional(),
+  })
+  .refine(({ status, schedule }) => status !== undefined || schedule !== undefined, {
+    message: "No hay cambios para aplicar",
+  });
 const availabilityBody = z.object({
   intervals: z.array(
     z.object({
@@ -329,14 +346,106 @@ adminRouter.patch("/appointments/:id", async (request, response) => {
   }
 
   const organizationId = response.locals.auth.organization.id as string;
-  const result = await prisma.appointment.updateMany({
+  const appointment = await prisma.appointment.findFirst({
     where: { id: request.params.id, organizationId },
-    data: { status: parsed.data.status },
   });
-  if (result.count === 0) {
+  if (!appointment) {
     return response.status(404).json({ error: "Turno no encontrado" });
   }
-  return response.json({ data: { id: request.params.id, ...parsed.data } });
+
+  let scheduleData: {
+    serviceId: string;
+    staffId: string;
+    startAt: Date;
+    endAt: Date;
+  } | null = null;
+
+  if (parsed.data.schedule) {
+    const { serviceId, staffId, date, time } = parsed.data.schedule;
+    const [service, staff] = await Promise.all([
+      prisma.service.findFirst({
+        where: { id: serviceId, organizationId, active: true },
+      }),
+      prisma.staff.findFirst({
+        where: {
+          id: staffId,
+          organizationId,
+          active: true,
+          services: { some: { serviceId } },
+        },
+      }),
+    ]);
+    if (!service || !staff) {
+      return response.status(400).json({
+        error: "El servicio o profesional seleccionado no está disponible",
+      });
+    }
+
+    const intervals = await prisma.weeklyAvailability.findMany({
+      where: {
+        organizationId,
+        weekday: weekdayForDate(date),
+        staffId: null,
+      },
+    });
+    if (!generateTimeSlots(intervals, service.durationMinutes).includes(time)) {
+      return response.status(400).json({
+        error: "El horario está fuera de la jornada de atención",
+      });
+    }
+
+    const range = toAppointmentRange(date, time, service.durationMinutes);
+    const [conflict, timeOff] = await Promise.all([
+      prisma.appointment.findFirst({
+        where: {
+          id: { not: appointment.id },
+          staffId,
+          status: { in: ["PENDING", "CONFIRMED"] },
+          startAt: { lt: range.endAt },
+          endAt: { gt: range.startAt },
+        },
+      }),
+      prisma.timeOff.findFirst({
+        where: {
+          organizationId,
+          OR: [{ staffId: null }, { staffId }],
+          startAt: { lt: range.endAt },
+          endAt: { gt: range.startAt },
+        },
+      }),
+    ]);
+    if (conflict || timeOff) {
+      return response.status(409).json({
+        error: "Ese horario ya no está disponible",
+      });
+    }
+
+    scheduleData = {
+      serviceId: service.id,
+      staffId: staff.id,
+      startAt: range.startAt,
+      endAt: range.endAt,
+    };
+  }
+
+  try {
+    const updated = await prisma.appointment.update({
+      where: { id: appointment.id },
+      data: {
+        ...(parsed.data.status ? { status: parsed.data.status } : {}),
+        ...(scheduleData ?? {}),
+      },
+      include: { service: true, staff: true },
+    });
+    return response.json({ data: updated });
+  } catch (error) {
+    if (String(error).includes("appointment_no_staff_overlap")) {
+      return response.status(409).json({
+        error: "Ese horario ya no está disponible",
+      });
+    }
+    throw error;
+  }
 });
 
 adminRouter.post("/staff", async (request, response) => {

@@ -214,6 +214,49 @@ describe("API pública de reservas", () => {
     expect(agenda.body.data[0].customerEmail).toBe("cliente@example.com");
   });
 
+  it("reprograma un turno validando servicio, profesional y horario", async () => {
+    const app = createApp();
+    const booking = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send({
+        serviceId: "classic-cut",
+        staffId: "fran-lopez",
+        date: "2027-02-05",
+        time: "12:00",
+        customer: {
+          name: "Cliente Demo",
+          email: "cliente@example.com",
+          phone: "1155550101",
+        },
+      });
+    expect(booking.status).toBe(201);
+
+    const login = await request(app).post("/api/v1/auth/login").send({
+      email: "admin@nortestudio.demo",
+      password: "Demo1234!",
+    });
+    const sessionCookie = login.headers["set-cookie"];
+    if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+
+    const updated = await request(app)
+      .patch("/api/v1/admin/appointments/" + booking.body.data.id)
+      .set("Cookie", sessionCookie)
+      .send({
+        status: "CONFIRMED",
+        schedule: {
+          serviceId: "beard-design",
+          staffId: "fran-lopez",
+          date: "2027-02-05",
+          time: "14:00",
+        },
+      });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.serviceId).toBe("beard-design");
+    expect(updated.body.data.startAt).toBe("2027-02-05T17:00:00.000Z");
+    expect(updated.body.data.endAt).toBe("2027-02-05T17:30:00.000Z");
+  });
+
   it("permite consultar y cancelar una reserva mediante su enlace", async () => {
     const app = createApp();
     const booking = await request(app)
