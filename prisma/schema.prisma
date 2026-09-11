@@ -25,6 +25,13 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
+enum AppointmentSource {
+  WEB
+  WHATSAPP
+  PHONE
+  WALK_IN
+}
+
 model Organization {
   id           String               @id @default(cuid())
   name         String
@@ -89,9 +96,9 @@ model Staff {
   id             String               @id @default(cuid())
   displayName    String
   bio            String?
-  roleTitle       String?
-  initials        String?
-  accent          String?
+  roleTitle      String?
+  initials       String?
+  accent         String?
   active         Boolean              @default(true)
   archivedAt     DateTime?            @db.Timestamptz(3)
   userId         String?              @unique
@@ -163,10 +170,11 @@ model TimeOff {
 model Appointment {
   id             String            @id @default(cuid())
   status         AppointmentStatus @default(CONFIRMED)
+  source         AppointmentSource @default(WEB)
   startAt        DateTime          @db.Timestamptz(3)
   endAt          DateTime          @db.Timestamptz(3)
   customerName   String
-  customerEmail  String
+  customerEmail  String?
   customerPhone  String
   notes          String?
   cancelToken    String            @unique

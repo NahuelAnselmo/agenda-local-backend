@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
@@ -59,6 +60,19 @@ const appointmentQuery = z
     ({ from, to }) => !from || !to || new Date(from) <= new Date(to),
     { message: "El rango de fechas es inválido" },
   );
+const appointmentCreateBody = z.object({
+  serviceId: z.string().min(1),
+  staffId: z.string().min(1),
+  date: z.iso.date(),
+  time: z.string().regex(/^\d{2}:\d{2}$/),
+  source: z.enum(["WHATSAPP", "PHONE", "WALK_IN"]).default("WHATSAPP"),
+  customer: z.object({
+    name: z.string().trim().min(2).max(100),
+    phone: z.string().trim().min(6).max(30),
+    email: z.union([z.email(), z.literal("")]).optional(),
+  }),
+  notes: z.string().trim().max(500).nullable().optional(),
+});
 const appointmentPatch = z
   .object({
     status: appointmentStatus.optional(),
@@ -311,6 +325,115 @@ adminRouter.get("/appointments", async (request, response) => {
   });
 
   return response.json({ data: appointments });
+});
+
+adminRouter.post("/appointments", async (request, response) => {
+  const parsed = appointmentCreateBody.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      error: "Datos del turno inválidos",
+      details: z.flattenError(parsed.error).fieldErrors,
+    });
+  }
+
+  const organizationId = response.locals.auth.organization.id as string;
+  const scopedStaffId = staffScope(response);
+  if (scopedStaffId === undefined) {
+    return response.status(403).json({ error: "El acceso del profesional no está activo" });
+  }
+
+  const { serviceId, staffId, date, time, customer, source, notes } = parsed.data;
+  if (scopedStaffId && staffId !== scopedStaffId) {
+    return response.status(403).json({
+      error: "Sólo podés agregar turnos a tu propia agenda",
+    });
+  }
+
+  const [service, staff] = await Promise.all([
+    prisma.service.findFirst({
+      where: { id: serviceId, organizationId, active: true },
+    }),
+    prisma.staff.findFirst({
+      where: {
+        id: staffId,
+        organizationId,
+        active: true,
+        archivedAt: null,
+        services: { some: { serviceId } },
+      },
+    }),
+  ]);
+  if (!service || !staff) {
+    return response.status(400).json({
+      error: "El servicio o profesional seleccionado no está disponible",
+    });
+  }
+
+  const intervals = await prisma.weeklyAvailability.findMany({
+    where: {
+      organizationId,
+      weekday: weekdayForDate(date),
+      staffId: null,
+    },
+  });
+  if (!generateTimeSlots(intervals, service.durationMinutes).includes(time)) {
+    return response.status(400).json({
+      error: "El horario está fuera de la jornada de atención",
+    });
+  }
+
+  const range = toAppointmentRange(date, time, service.durationMinutes);
+  const [conflict, timeOff] = await Promise.all([
+    prisma.appointment.findFirst({
+      where: {
+        staffId,
+        status: { in: ["PENDING", "CONFIRMED"] },
+        startAt: { lt: range.endAt },
+        endAt: { gt: range.startAt },
+      },
+    }),
+    prisma.timeOff.findFirst({
+      where: {
+        organizationId,
+        OR: [{ staffId: null }, { staffId }],
+        startAt: { lt: range.endAt },
+        endAt: { gt: range.startAt },
+      },
+    }),
+  ]);
+  if (conflict || timeOff) {
+    return response.status(409).json({
+      error: "Ese horario ya no está disponible",
+    });
+  }
+
+  try {
+    const appointment = await prisma.appointment.create({
+      data: {
+        organizationId,
+        serviceId,
+        staffId,
+        startAt: range.startAt,
+        endAt: range.endAt,
+        customerName: customer.name,
+        customerPhone: customer.phone,
+        customerEmail: customer.email || null,
+        notes: notes || null,
+        source,
+        status: "CONFIRMED",
+        cancelToken: randomBytes(24).toString("hex"),
+      },
+      include: { service: true, staff: true },
+    });
+    return response.status(201).json({ data: appointment });
+  } catch (error) {
+    if (String(error).includes("appointment_no_staff_overlap")) {
+      return response.status(409).json({
+        error: "Ese horario ya no está disponible",
+      });
+    }
+    throw error;
+  }
 });
 
 adminRouter.put("/availability", requireOwner, async (request, response) => {

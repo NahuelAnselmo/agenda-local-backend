@@ -14,6 +14,7 @@ describe("API pública de reservas", () => {
       where: {
         OR: [
           { customerEmail: "cliente@example.com" },
+          { customerPhone: "telefono-demo" },
           { staffId: { in: temporaryStaffIds } },
         ],
       },
@@ -394,6 +395,37 @@ describe("API pública de reservas", () => {
     expect(agenda.status).toBe(200);
     expect(agenda.body.data).toHaveLength(1);
     expect(agenda.body.data[0].customerEmail).toBe("cliente@example.com");
+  });
+
+  it("registra en la agenda un turno recibido por WhatsApp", async () => {
+    const app = createApp();
+    const login = await request(app).post("/api/v1/auth/login").send({
+      email: "admin@nortestudio.demo",
+      password: "Demo1234!",
+    });
+    const sessionCookie = login.headers["set-cookie"];
+    if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+
+    const created = await request(app)
+      .post("/api/v1/admin/appointments")
+      .set("Cookie", sessionCookie)
+      .send({
+        serviceId: "classic-cut",
+        staffId: "fran-lopez",
+        date: "2027-02-05",
+        time: "11:30",
+        source: "WHATSAPP",
+        customer: {
+          name: "Cliente por WhatsApp",
+          phone: "telefono-demo",
+        },
+        notes: "Prefiere corte con tijera",
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.data.source).toBe("WHATSAPP");
+    expect(created.body.data.customerEmail).toBeNull();
+    expect(created.body.data.notes).toBe("Prefiere corte con tijera");
   });
 
   it("reprograma un turno validando servicio, profesional y horario", async () => {
