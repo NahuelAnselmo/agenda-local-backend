@@ -1,7 +1,8 @@
 import request from "supertest";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import { prisma } from "./lib/prisma.js";
+import { deliverWithResend, staffAccessEmail } from "./services/email.js";
 
 describe("API pública de reservas", () => {
   beforeEach(async () => {
@@ -44,6 +45,30 @@ describe("API pública de reservas", () => {
     );
   });
 
+  it("prepara y entrega por Resend las credenciales del profesional", async () => {
+    const input = {
+      recipientEmail: "barbero.temporal@nortestudio.demo",
+      staffName: "Barbero Demo",
+      businessName: "Norte Studio",
+      temporaryPassword: "Temporal123!",
+    };
+    const content = staffAccessEmail(input);
+    const requestMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+    const sent = await deliverWithResend(
+      input,
+      { apiKey: "re_test_key", from: "Agenda Demo <accesos@example.com>" },
+      requestMock,
+    );
+
+    expect(sent).toBe(true);
+    expect(content.loginUrl).toBe("http://localhost:3000/admin");
+    expect(content.text).toContain(input.recipientEmail);
+    expect(content.text).toContain(input.temporaryPassword);
+    expect(requestMock).toHaveBeenCalledOnce();
+    expect(requestMock.mock.calls[0]?.[0]).toBe("https://api.resend.com/emails");
+  });
+
   it("evita reservar dos veces al mismo profesional y horario", async () => {
     const app = createApp();
     const booking = {
@@ -58,16 +83,15 @@ describe("API pública de reservas", () => {
       },
     };
 
-    const [first, duplicate] = await Promise.all([
-      request(app)
-        .post("/api/v1/businesses/norte-studio/appointments")
-        .send(booking),
-      request(app)
-        .post("/api/v1/businesses/norte-studio/appointments")
-        .send(booking),
-    ]);
+    const first = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send(booking);
+    const duplicate = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send(booking);
 
-    expect([first.status, duplicate.status].sort()).toEqual([201, 409]);
+    expect(first.status).toBe(201);
+    expect(duplicate.status).toBe(409);
   });
 
   it("ofrece el mismo horario una vez por cada profesional disponible", async () => {
@@ -83,14 +107,12 @@ describe("API pública de reservas", () => {
       },
     };
 
-    const [firstStaff, secondStaff] = await Promise.all([
-      request(app)
-        .post("/api/v1/businesses/norte-studio/appointments")
-        .send({ ...appointment, staffId: "nico-ramos" }),
-      request(app)
-        .post("/api/v1/businesses/norte-studio/appointments")
-        .send({ ...appointment, staffId: "fran-lopez" }),
-    ]);
+    const firstStaff = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send({ ...appointment, staffId: "nico-ramos" });
+    const secondStaff = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send({ ...appointment, staffId: "fran-lopez" });
     const noCapacity = await request(app)
       .post("/api/v1/businesses/norte-studio/appointments")
       .send({ ...appointment, staffId: null });

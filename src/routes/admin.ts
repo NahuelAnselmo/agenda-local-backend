@@ -12,6 +12,7 @@ import {
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../lib/prisma.js";
 import { timeOffRouter } from "./admin/time-off.js";
+import { sendStaffAccessEmail } from "../services/email.js";
 
 const serviceBody = z.object({
   name: z.string().trim().min(2).max(80),
@@ -837,8 +838,18 @@ adminRouter.put("/staff/:id/access", requireOwner, async (request, response) => 
     return accessUser;
   });
 
+  const emailDelivery = await sendStaffAccessEmail({
+    recipientEmail: user.email,
+    staffName: member.displayName,
+    businessName: response.locals.auth.organization.name,
+    temporaryPassword: parsed.data.temporaryPassword,
+  });
+
   return response.json({
-    data: { user: { id: user.id, name: user.name, email: user.email } },
+    data: {
+      user: { id: user.id, name: user.name, email: user.email },
+      emailDelivery,
+    },
   });
 });
 

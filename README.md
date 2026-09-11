@@ -46,6 +46,17 @@ servicios, disponibilidad, ausencias, sesiones y turnos.
   negocio.
 - Accesos individuales: el propietario administra el negocio completo y cada
   profesional queda limitado a sus propios turnos.
+- Envío automático del acceso por email mediante Resend, incluyendo enlace de
+  ingreso, usuario y contraseña temporal.
 
 Todas las operaciones administrativas se limitan a la organización de la
 sesión. Los turnos cancelados se conservan para mantener historial operativo.
+
+## Emails de acceso
+
+Para enviar las credenciales automáticamente se deben configurar
+`RESEND_API_KEY` y `EMAIL_FROM`. El remitente de `EMAIL_FROM` debe pertenecer a
+un dominio verificado en Resend. `FRONTEND_URL` se usa para construir el enlace
+`/admin` incluido en el mensaje. Si el proveedor no está configurado o rechaza
+el envío, la cuenta igualmente queda creada y el panel muestra las credenciales
+para compartirlas manualmente.
