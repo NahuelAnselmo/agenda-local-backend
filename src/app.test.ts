@@ -463,6 +463,40 @@ describe("API pública de reservas", () => {
     expect(created.body.data.notes).toBe("Prefiere corte con tijera");
   });
 
+  it("permite crear, consultar y quitar un bloqueo de agenda", async () => {
+    const app = createApp();
+    const login = await request(app).post("/api/v1/auth/login").send({
+      email: "admin@nortestudio.demo",
+      password: "Demo1234!",
+    });
+    const sessionCookie = login.headers["set-cookie"];
+    if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+
+    const created = await request(app)
+      .post("/api/v1/admin/time-off")
+      .set("Cookie", sessionCookie)
+      .send({
+        staffId: "fran-lopez",
+        reason: "Vacaciones",
+        startAt: "2027-03-01T12:00:00.000Z",
+        endAt: "2027-03-08T23:00:00.000Z",
+      });
+    const list = await request(app)
+      .get("/api/v1/admin/time-off")
+      .set("Cookie", sessionCookie);
+    const removed = await request(app)
+      .delete("/api/v1/admin/time-off/" + created.body.data.id)
+      .set("Cookie", sessionCookie);
+
+    expect(created.status).toBe(201);
+    expect(created.body.data.staff.displayName).toBe("Fran López");
+    expect(list.status).toBe(200);
+    expect(
+      list.body.data.some(({ id }: { id: string }) => id === created.body.data.id),
+    ).toBe(true);
+    expect(removed.status).toBe(204);
+  });
+
   it("reprograma un turno validando servicio, profesional y horario", async () => {
     const app = createApp();
     const booking = await request(app)

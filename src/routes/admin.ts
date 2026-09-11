@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
+import { staffScope } from "../auth/access.js";
 import { hashPassword } from "../auth/password.js";
 import {
   generateTimeSlots,
@@ -10,6 +11,7 @@ import {
 } from "../data/demo.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../lib/prisma.js";
+import { timeOffRouter } from "./admin/time-off.js";
 
 const serviceBody = z.object({
   name: z.string().trim().min(2).max(80),
@@ -100,25 +102,13 @@ const availabilityBody = z.object({
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth);
+adminRouter.use("/time-off", timeOffRouter);
 
 function requireOwner(_request: Request, response: Response, next: NextFunction) {
   if (response.locals.auth.membership.role !== "OWNER") {
     return response.status(403).json({ error: "Permiso de propietario requerido" });
   }
   return next();
-}
-
-function staffScope(response: Response) {
-  if (response.locals.auth.membership.role === "OWNER") return null;
-  const profile = response.locals.auth.user.staffProfile;
-  if (
-    !profile ||
-    profile.organizationId !== response.locals.auth.organization.id ||
-    profile.archivedAt
-  ) {
-    return undefined;
-  }
-  return profile.id as string;
 }
 
 function initialsFor(name: string) {
