@@ -31,7 +31,7 @@ export function staffAccessEmail(input: StaffAccessEmailInput) {
   const text = [
     `Hola ${input.staffName},`,
     "",
-    `${input.businessName} creó tu acceso personal para gestionar tus servicios y turnos.`,
+    `${input.businessName} creó tu acceso personal para gestionar tus cortes y turnos asignados.`,
     `Ingresá en: ${loginUrl}`,
     `Email: ${input.recipientEmail}`,
     `Contraseña temporal: ${input.temporaryPassword}`,
@@ -42,7 +42,7 @@ export function staffAccessEmail(input: StaffAccessEmailInput) {
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#17211d">
       <p>Hola ${escapeHtml(input.staffName)},</p>
       <h1 style="font-size:24px">Ya tenés acceso a tu agenda</h1>
-      <p><strong>${escapeHtml(input.businessName)}</strong> creó tu perfil personal para gestionar tus servicios y turnos.</p>
+      <p><strong>${escapeHtml(input.businessName)}</strong> creó tu perfil personal para gestionar tus cortes y turnos asignados.</p>
       <div style="padding:18px;background:#f3f0e8;border-radius:8px">
         <p><strong>Email:</strong> ${escapeHtml(input.recipientEmail)}</p>
         <p><strong>Contraseña temporal:</strong> ${escapeHtml(input.temporaryPassword)}</p>
