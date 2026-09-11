@@ -245,15 +245,25 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
   let appointment = null;
 
   for (const staff of eligibleStaff) {
-    const conflict = await prisma.appointment.findFirst({
-      where: {
-        staffId: staff.id,
-        status: { in: ["PENDING", "CONFIRMED"] },
-        startAt: { lt: range.endAt },
-        endAt: { gt: range.startAt },
-      },
-    });
-    if (conflict) continue;
+    const [conflict, timeOff] = await Promise.all([
+      prisma.appointment.findFirst({
+        where: {
+          staffId: staff.id,
+          status: { in: ["PENDING", "CONFIRMED"] },
+          startAt: { lt: range.endAt },
+          endAt: { gt: range.startAt },
+        },
+      }),
+      prisma.timeOff.findFirst({
+        where: {
+          organizationId: business.id,
+          OR: [{ staffId: null }, { staffId: staff.id }],
+          startAt: { lt: range.endAt },
+          endAt: { gt: range.startAt },
+        },
+      }),
+    ]);
+    if (conflict || timeOff) continue;
 
     try {
       appointment = await prisma.appointment.create({

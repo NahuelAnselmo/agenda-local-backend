@@ -89,6 +89,41 @@ describe("API pública de reservas", () => {
     expect(overlapping.status).toBe(409);
   });
 
+  it("impide reservar durante una ausencia del profesional", async () => {
+    const organization = await prisma.organization.findUniqueOrThrow({
+      where: { slug: "norte-studio" },
+    });
+    const timeOff = await prisma.timeOff.create({
+      data: {
+        organizationId: organization.id,
+        staffId: "fran-lopez",
+        reason: "Ausencia de prueba",
+        startAt: new Date("2027-02-06T12:00:00.000Z"),
+        endAt: new Date("2027-02-06T20:00:00.000Z"),
+      },
+    });
+
+    try {
+      const booking = await request(createApp())
+        .post("/api/v1/businesses/norte-studio/appointments")
+        .send({
+          serviceId: "classic-cut",
+          staffId: "fran-lopez",
+          date: "2027-02-06",
+          time: "10:00",
+          customer: {
+            name: "Cliente Demo",
+            email: "cliente@example.com",
+            phone: "telefono-demo",
+          },
+        });
+
+      expect(booking.status).toBe(409);
+    } finally {
+      await prisma.timeOff.delete({ where: { id: timeOff.id } });
+    }
+  });
+
   it("protege el dashboard y permite ingresar con el usuario demo", async () => {
     const app = createApp();
     const unauthorized = await request(app).get("/api/v1/admin/dashboard");
