@@ -102,8 +102,8 @@ async function main() {
   for (const service of services) {
     await prisma.service.upsert({
       where: { id: service.id },
-      update: service,
-      create: { ...service, organizationId: organization.id },
+      update: { ...service, active: true },
+      create: { ...service, active: true, organizationId: organization.id },
     });
   }
 
@@ -142,6 +142,8 @@ async function main() {
         roleTitle: member.roleTitle,
         initials: member.initials,
         accent: member.accent,
+        active: true,
+        archivedAt: null,
       },
       create: {
         id: member.id,

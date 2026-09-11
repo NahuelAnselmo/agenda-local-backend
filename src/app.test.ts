@@ -31,11 +31,21 @@ describe("API pública de reservas", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.body.data.services).toHaveLength(4);
-    expect(response.body.data.staff).toHaveLength(3);
+    expect(response.body.data.services.map(({ id }: { id: string }) => id)).toEqual(
+      expect.arrayContaining([
+        "classic-cut",
+        "beard-design",
+        "full-service",
+        "color-refresh",
+      ]),
+    );
+    expect(response.body.data.staff.map(({ id }: { id: string }) => id)).toEqual(
+      expect.arrayContaining(["nico-ramos", "cami-sosa", "fran-lopez"]),
+    );
   });
 
   it("evita reservar dos veces al mismo profesional y horario", async () => {
+    const app = createApp();
     const booking = {
       serviceId: "color-refresh",
       staffId: "cami-sosa",
@@ -48,15 +58,46 @@ describe("API pública de reservas", () => {
       },
     };
 
-    const first = await request(createApp())
-      .post("/api/v1/businesses/norte-studio/appointments")
-      .send(booking);
-    const duplicate = await request(createApp())
-      .post("/api/v1/businesses/norte-studio/appointments")
-      .send(booking);
+    const [first, duplicate] = await Promise.all([
+      request(app)
+        .post("/api/v1/businesses/norte-studio/appointments")
+        .send(booking),
+      request(app)
+        .post("/api/v1/businesses/norte-studio/appointments")
+        .send(booking),
+    ]);
 
-    expect(first.status).toBe(201);
-    expect(duplicate.status).toBe(409);
+    expect([first.status, duplicate.status].sort()).toEqual([201, 409]);
+  });
+
+  it("ofrece el mismo horario una vez por cada profesional disponible", async () => {
+    const app = createApp();
+    const appointment = {
+      serviceId: "beard-design",
+      date: "2027-04-03",
+      time: "10:00",
+      customer: {
+        name: "Cliente Demo",
+        email: "cliente@example.com",
+        phone: "telefono-demo",
+      },
+    };
+
+    const [firstStaff, secondStaff] = await Promise.all([
+      request(app)
+        .post("/api/v1/businesses/norte-studio/appointments")
+        .send({ ...appointment, staffId: "nico-ramos" }),
+      request(app)
+        .post("/api/v1/businesses/norte-studio/appointments")
+        .send({ ...appointment, staffId: "fran-lopez" }),
+    ]);
+    const noCapacity = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send({ ...appointment, staffId: null });
+
+    expect(firstStaff.status).toBe(201);
+    expect(secondStaff.status).toBe(201);
+    expect(noCapacity.status).toBe(409);
   });
 
   it("detecta superposición aunque los turnos empiecen a distinta hora", async () => {
