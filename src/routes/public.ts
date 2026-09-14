@@ -6,7 +6,12 @@ import {
   toAppointmentRange,
   weekdayForDate,
 } from "../data/demo.js";
+import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../lib/prisma.js";
+
+type PublicAppointment = Prisma.AppointmentGetPayload<{
+  include: { service: true; staff: true; organization: true };
+}>;
 
 const availabilityQuery = z.object({
   serviceId: z.string().min(1),
@@ -15,6 +20,7 @@ const availabilityQuery = z.object({
 });
 
 const appointmentBody = z.object({
+  clientRequestId: z.uuid().optional(),
   serviceId: z.string().min(1),
   staffId: z.string().min(1).nullable(),
   date: z.iso.date(),
@@ -205,12 +211,38 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
     });
   }
 
-  const { serviceId, staffId, date, time, customer } = parsed.data;
+  const { clientRequestId, serviceId, staffId, date, time, customer } = parsed.data;
   const business = await prisma.organization.findUnique({
     where: { slug: request.params.slug },
   });
   if (!business) {
     return response.status(404).json({ error: "Negocio no encontrado" });
+  }
+
+  if (clientRequestId) {
+    const existing = await prisma.appointment.findFirst({
+      where: { organizationId: business.id, clientRequestId },
+      include: { service: true, staff: true, organization: true },
+    });
+    if (existing) {
+      return response.json({
+        data: {
+          id: existing.id,
+          status: existing.status,
+          startAt: existing.startAt,
+          endAt: existing.endAt,
+          cancelToken: existing.cancelToken,
+          customer: {
+            name: existing.customerName,
+            email: existing.customerEmail,
+            phone: existing.customerPhone,
+          },
+          service: existing.service,
+          staff: existing.staff,
+          business: existing.organization,
+        },
+      });
+    }
   }
 
   const service = await prisma.service.findFirst({
@@ -242,7 +274,7 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
     return response.status(404).json({ error: "Servicio u horario no disponible" });
   }
   const range = toAppointmentRange(date, time, service.durationMinutes);
-  let appointment = null;
+  let appointment: PublicAppointment | null = null;
 
   for (const staff of eligibleStaff) {
     const conflict = await prisma.appointment.findFirst({
@@ -278,10 +310,21 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
           customerPhone: customer.phone,
           status: "CONFIRMED",
           cancelToken: randomBytes(24).toString("hex"),
+          ...(clientRequestId ? { clientRequestId } : {}),
         },
         include: { service: true, staff: true, organization: true },
       });
     } catch (error) {
+      if (clientRequestId) {
+        const existing = await prisma.appointment.findFirst({
+          where: { organizationId: business.id, clientRequestId },
+          include: { service: true, staff: true, organization: true },
+        });
+        if (existing) {
+          appointment = existing;
+          break;
+        }
+      }
       if (!String(error).includes("appointment_no_staff_overlap")) throw error;
     }
     if (appointment) break;

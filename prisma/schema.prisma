@@ -168,25 +168,27 @@ model TimeOff {
 }
 
 model Appointment {
-  id             String            @id @default(cuid())
-  status         AppointmentStatus @default(CONFIRMED)
-  source         AppointmentSource @default(WEB)
-  startAt        DateTime          @db.Timestamptz(3)
-  endAt          DateTime          @db.Timestamptz(3)
-  customerName   String
-  customerEmail  String?
-  customerPhone  String
-  notes          String?
-  cancelToken    String            @unique
-  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime          @updatedAt @db.Timestamptz(3)
-  organizationId String
-  serviceId      String
-  staffId        String
-  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  service        Service           @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  staff          Staff             @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  id              String            @id @default(cuid())
+  status          AppointmentStatus @default(CONFIRMED)
+  source          AppointmentSource @default(WEB)
+  startAt         DateTime          @db.Timestamptz(3)
+  endAt           DateTime          @db.Timestamptz(3)
+  customerName    String
+  customerEmail   String?
+  customerPhone   String
+  notes           String?
+  cancelToken     String            @unique
+  clientRequestId String?
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+  organizationId  String
+  serviceId       String
+  staffId         String
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  service         Service           @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  staff           Staff             @relation(fields: [staffId], references: [id], onDelete: Restrict)
 
+  @@unique([organizationId, clientRequestId])
   @@index([organizationId, startAt])
   @@index([staffId, startAt, endAt])
   @@index([customerEmail, startAt])

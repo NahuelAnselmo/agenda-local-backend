@@ -94,6 +94,34 @@ describe("API pública de reservas", () => {
     expect(duplicate.status).toBe(409);
   });
 
+  it("devuelve la misma reserva cuando se repite una solicitud identificada", async () => {
+    const app = createApp();
+    const booking = {
+      clientRequestId: "4c49f459-790f-4aab-8d7f-e2ce589d5d42",
+      serviceId: "classic-cut",
+      staffId: null,
+      date: "2027-01-21",
+      time: "10:30",
+      customer: {
+        name: "Cliente Demo",
+        email: "cliente@example.com",
+        phone: "1155550101",
+      },
+    };
+
+    const first = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send(booking);
+    const repeated = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send(booking);
+
+    expect(first.status).toBe(201);
+    expect(repeated.status).toBe(200);
+    expect(repeated.body.data.id).toBe(first.body.data.id);
+    expect(repeated.body.data.cancelToken).toBe(first.body.data.cancelToken);
+  });
+
   it("ofrece el mismo horario una vez por cada profesional disponible", async () => {
     const app = createApp();
     const appointment = {
