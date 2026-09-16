@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { staffScope } from "../../auth/access.js";
 import { prisma } from "../../lib/prisma.js";
+import { lockStaffSchedules } from "../../services/schedule-lock.js";
 
 const timeOffBody = z
   .object({
@@ -65,18 +66,51 @@ timeOffRouter.post("/", async (request, response) => {
     }
   }
 
-  const block = await prisma.timeOff.create({
-    data: {
-      organizationId,
-      staffId,
-      reason: parsed.data.reason || null,
-      startAt: new Date(parsed.data.startAt),
-      endAt: new Date(parsed.data.endAt),
-    },
-    include: { staff: true },
+  const staffIds = staffId
+    ? [staffId]
+    : (
+        await prisma.staff.findMany({
+          where: { organizationId, active: true, archivedAt: null },
+          select: { id: true },
+          orderBy: { id: "asc" },
+        })
+      ).map(({ id }) => id);
+  const startAt = new Date(parsed.data.startAt);
+  const endAt = new Date(parsed.data.endAt);
+  const result = await prisma.$transaction(async (transaction) => {
+    await lockStaffSchedules(transaction, organizationId, staffIds);
+    const conflictCount = await transaction.appointment.count({
+      where: {
+        organizationId,
+        staffId: { in: staffIds },
+        status: { in: ["PENDING", "CONFIRMED"] },
+        startAt: { lt: endAt },
+        endAt: { gt: startAt },
+      },
+    });
+    if (conflictCount > 0) return { conflictCount, block: null };
+
+    const block = await transaction.timeOff.create({
+      data: {
+        organizationId,
+        staffId,
+        reason: parsed.data.reason || null,
+        startAt,
+        endAt,
+      },
+      include: { staff: true },
+    });
+    return { conflictCount: 0, block };
   });
 
-  return response.status(201).json({ data: block });
+  if (!result.block) {
+    return response.status(409).json({
+      error: "El bloqueo se superpone con turnos activos",
+      conflictCount: result.conflictCount,
+    });
+  }
+
+  return response.status(201).json({ data: result.block });
 });
 
 timeOffRouter.delete("/:id", async (request, response) => {

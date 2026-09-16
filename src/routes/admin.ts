@@ -14,6 +14,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../lib/prisma.js";
 import { timeOffRouter } from "./admin/time-off.js";
 import { sendStaffAccessEmail } from "../services/email.js";
+import { lockStaffSchedules } from "../services/schedule-lock.js";
 
 const serviceBody = z.object({
   name: z.string().trim().min(2).max(80),
@@ -380,48 +381,50 @@ adminRouter.post("/appointments", async (request, response) => {
       error: "La fecha debe ser futura y estar dentro del próximo año",
     });
   }
-  const [conflict, timeOff] = await Promise.all([
-    prisma.appointment.findFirst({
-      where: {
-        staffId,
-        status: { in: ["PENDING", "CONFIRMED"] },
-        startAt: { lt: range.endAt },
-        endAt: { gt: range.startAt },
-      },
-    }),
-    prisma.timeOff.findFirst({
-      where: {
-        organizationId,
-        OR: [{ staffId: null }, { staffId }],
-        startAt: { lt: range.endAt },
-        endAt: { gt: range.startAt },
-      },
-    }),
-  ]);
-  if (conflict || timeOff) {
-    return response.status(409).json({
-      error: "Ese horario ya no está disponible",
-    });
-  }
-
   try {
-    const appointment = await prisma.appointment.create({
-      data: {
-        organizationId,
-        serviceId,
-        staffId,
-        startAt: range.startAt,
-        endAt: range.endAt,
-        customerName: customer.name,
-        customerPhone: customer.phone,
-        customerEmail: customer.email || null,
-        notes: notes || null,
-        source,
-        status: "CONFIRMED",
-        cancelToken: randomBytes(24).toString("hex"),
-      },
-      include: { service: true, staff: true },
+    const appointment = await prisma.$transaction(async (transaction) => {
+      await lockStaffSchedules(transaction, organizationId, [staffId]);
+      const conflict = await transaction.appointment.findFirst({
+        where: {
+          staffId,
+          status: { in: ["PENDING", "CONFIRMED"] },
+          startAt: { lt: range.endAt },
+          endAt: { gt: range.startAt },
+        },
+      });
+      const timeOff = await transaction.timeOff.findFirst({
+        where: {
+          organizationId,
+          OR: [{ staffId: null }, { staffId }],
+          startAt: { lt: range.endAt },
+          endAt: { gt: range.startAt },
+        },
+      });
+      if (conflict || timeOff) return null;
+
+      return transaction.appointment.create({
+        data: {
+          organizationId,
+          serviceId,
+          staffId,
+          startAt: range.startAt,
+          endAt: range.endAt,
+          customerName: customer.name,
+          customerPhone: customer.phone,
+          customerEmail: customer.email || null,
+          notes: notes || null,
+          source,
+          status: "CONFIRMED",
+          cancelToken: randomBytes(24).toString("hex"),
+        },
+        include: { service: true, staff: true },
+      });
     });
+    if (!appointment) {
+      return response.status(409).json({
+        error: "Ese horario ya no está disponible",
+      });
+    }
     return response.status(201).json({ data: appointment });
   } catch (error) {
     if (String(error).includes("appointment_no_staff_overlap")) {
@@ -598,31 +601,6 @@ adminRouter.patch("/appointments/:id", async (request, response) => {
         error: "La fecha debe ser futura y estar dentro del próximo año",
       });
     }
-    const [conflict, timeOff] = await Promise.all([
-      prisma.appointment.findFirst({
-        where: {
-          id: { not: appointment.id },
-          staffId,
-          status: { in: ["PENDING", "CONFIRMED"] },
-          startAt: { lt: range.endAt },
-          endAt: { gt: range.startAt },
-        },
-      }),
-      prisma.timeOff.findFirst({
-        where: {
-          organizationId,
-          OR: [{ staffId: null }, { staffId }],
-          startAt: { lt: range.endAt },
-          endAt: { gt: range.startAt },
-        },
-      }),
-    ]);
-    if (conflict || timeOff) {
-      return response.status(409).json({
-        error: "Ese horario ya no está disponible",
-      });
-    }
-
     scheduleData = {
       serviceId: service.id,
       staffId: staff.id,
@@ -632,14 +610,46 @@ adminRouter.patch("/appointments/:id", async (request, response) => {
   }
 
   try {
-    const updated = await prisma.appointment.update({
-      where: { id: appointment.id },
-      data: {
-        ...(parsed.data.status ? { status: parsed.data.status } : {}),
-        ...(scheduleData ?? {}),
-      },
-      include: { service: true, staff: true },
-    });
+    const updateAppointment = async (transaction: Prisma.TransactionClient) => {
+      if (scheduleData) {
+        await lockStaffSchedules(transaction, organizationId, [scheduleData.staffId]);
+        const conflict = await transaction.appointment.findFirst({
+          where: {
+            id: { not: appointment.id },
+            staffId: scheduleData.staffId,
+            status: { in: ["PENDING", "CONFIRMED"] },
+            startAt: { lt: scheduleData.endAt },
+            endAt: { gt: scheduleData.startAt },
+          },
+        });
+        const timeOff = await transaction.timeOff.findFirst({
+          where: {
+            organizationId,
+            OR: [{ staffId: null }, { staffId: scheduleData.staffId }],
+            startAt: { lt: scheduleData.endAt },
+            endAt: { gt: scheduleData.startAt },
+          },
+        });
+        if (conflict || timeOff) return null;
+      }
+
+      return transaction.appointment.update({
+        where: { id: appointment.id },
+        data: {
+          ...(parsed.data.status ? { status: parsed.data.status } : {}),
+          ...(scheduleData ?? {}),
+        },
+        include: { service: true, staff: true },
+      });
+    };
+    const updated = scheduleData
+      ? await prisma.$transaction(updateAppointment)
+      : await updateAppointment(prisma);
+    if (!updated) {
+      return response.status(409).json({
+        error: "Ese horario ya no está disponible",
+      });
+    }
     return response.json({ data: updated });
   } catch (error) {
     if (String(error).includes("appointment_no_staff_overlap")) {

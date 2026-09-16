@@ -9,6 +9,7 @@ import {
 } from "../data/demo.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../lib/prisma.js";
+import { lockStaffSchedules } from "../services/schedule-lock.js";
 
 type PublicAppointment = Prisma.AppointmentGetPayload<{
   include: { service: true; staff: true; organization: true };
@@ -285,42 +286,43 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
   let appointment: PublicAppointment | null = null;
 
   for (const staff of eligibleStaff) {
-    const conflict = await prisma.appointment.findFirst({
-      where: {
-        staffId: staff.id,
-        status: { in: ["PENDING", "CONFIRMED"] },
-        startAt: { lt: range.endAt },
-        endAt: { gt: range.startAt },
-      },
-    });
-    if (conflict) continue;
-
-    const timeOff = await prisma.timeOff.findFirst({
-      where: {
-        organizationId: business.id,
-        OR: [{ staffId: null }, { staffId: staff.id }],
-        startAt: { lt: range.endAt },
-        endAt: { gt: range.startAt },
-      },
-    });
-    if (timeOff) continue;
-
     try {
-      appointment = await prisma.appointment.create({
-        data: {
-          organizationId: business.id,
-          serviceId: service.id,
-          staffId: staff.id,
-          startAt: range.startAt,
-          endAt: range.endAt,
-          customerName: customer.name,
-          customerEmail: customer.email,
-          customerPhone: customer.phone,
-          status: "CONFIRMED",
-          cancelToken: randomBytes(24).toString("hex"),
-          ...(clientRequestId ? { clientRequestId } : {}),
-        },
-        include: { service: true, staff: true, organization: true },
+      appointment = await prisma.$transaction(async (transaction) => {
+        await lockStaffSchedules(transaction, business.id, [staff.id]);
+        const conflict = await transaction.appointment.findFirst({
+          where: {
+            staffId: staff.id,
+            status: { in: ["PENDING", "CONFIRMED"] },
+            startAt: { lt: range.endAt },
+            endAt: { gt: range.startAt },
+          },
+        });
+        const timeOff = await transaction.timeOff.findFirst({
+          where: {
+            organizationId: business.id,
+            OR: [{ staffId: null }, { staffId: staff.id }],
+            startAt: { lt: range.endAt },
+            endAt: { gt: range.startAt },
+          },
+        });
+        if (conflict || timeOff) return null;
+
+        return transaction.appointment.create({
+          data: {
+            organizationId: business.id,
+            serviceId: service.id,
+            staffId: staff.id,
+            startAt: range.startAt,
+            endAt: range.endAt,
+            customerName: customer.name,
+            customerEmail: customer.email,
+            customerPhone: customer.phone,
+            status: "CONFIRMED",
+            cancelToken: randomBytes(24).toString("hex"),
+            ...(clientRequestId ? { clientRequestId } : {}),
+          },
+          include: { service: true, staff: true, organization: true },
+        });
       });
     } catch (error) {
       if (clientRequestId) {

@@ -632,6 +632,44 @@ describe("API pública de reservas", () => {
     expect(removed.status).toBe(204);
   });
 
+  it("rechaza un bloqueo que se superpone con turnos activos", async () => {
+    const app = createApp();
+    const booking = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send({
+        serviceId: "classic-cut",
+        staffId: "fran-lopez",
+        date: "2027-03-10",
+        time: "10:00",
+        customer: {
+          name: "Cliente Demo",
+          email: "cliente@example.com",
+          phone: "1155550101",
+        },
+      });
+    expect(booking.status).toBe(201);
+
+    const login = await request(app).post("/api/v1/auth/login").send({
+      email: "admin@nortestudio.demo",
+      password: "Demo1234!",
+    });
+    const sessionCookie = login.headers["set-cookie"];
+    if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+
+    const blocked = await request(app)
+      .post("/api/v1/admin/time-off")
+      .set("Cookie", sessionCookie)
+      .send({
+        staffId: "fran-lopez",
+        reason: "Ausencia superpuesta",
+        startAt: "2027-03-10T12:30:00.000Z",
+        endAt: "2027-03-10T15:00:00.000Z",
+      });
+
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.conflictCount).toBe(1);
+  });
+
   it("reprograma un turno validando servicio, profesional y horario", async () => {
     const app = createApp();
     const booking = await request(app)
