@@ -6,6 +6,7 @@ import { staffScope } from "../auth/access.js";
 import { hashPassword } from "../auth/password.js";
 import {
   generateTimeSlots,
+  isBookableStart,
   toAppointmentRange,
   weekdayForDate,
 } from "../data/demo.js";
@@ -67,7 +68,7 @@ const appointmentCreateBody = z.object({
   serviceId: z.string().min(1),
   staffId: z.string().min(1),
   date: z.iso.date(),
-  time: z.string().regex(/^\d{2}:\d{2}$/),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   source: z.enum(["WHATSAPP", "PHONE", "WALK_IN"]).default("WHATSAPP"),
   customer: z.object({
     name: z.string().trim().min(2).max(100),
@@ -84,7 +85,7 @@ const appointmentPatch = z
         serviceId: z.string().min(1),
         staffId: z.string().min(1),
         date: z.iso.date(),
-        time: z.string().regex(/^\d{2}:\d{2}$/),
+        time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
       })
       .optional(),
   })
@@ -95,8 +96,8 @@ const availabilityBody = z.object({
   intervals: z.array(
     z.object({
       weekday: z.number().int().min(0).max(6),
-      startTime: z.string().regex(/^\d{2}:\d{2}$/),
-      endTime: z.string().regex(/^\d{2}:\d{2}$/),
+      startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
     }),
   ).max(28),
 });
@@ -374,6 +375,11 @@ adminRouter.post("/appointments", async (request, response) => {
   }
 
   const range = toAppointmentRange(date, time, service.durationMinutes);
+  if (!isBookableStart(range.startAt)) {
+    return response.status(400).json({
+      error: "La fecha debe ser futura y estar dentro del próximo año",
+    });
+  }
   const [conflict, timeOff] = await Promise.all([
     prisma.appointment.findFirst({
       where: {
@@ -587,6 +593,11 @@ adminRouter.patch("/appointments/:id", async (request, response) => {
     }
 
     const range = toAppointmentRange(date, time, service.durationMinutes);
+    if (!isBookableStart(range.startAt)) {
+      return response.status(400).json({
+        error: "La fecha debe ser futura y estar dentro del próximo año",
+      });
+    }
     const [conflict, timeOff] = await Promise.all([
       prisma.appointment.findFirst({
         where: {

@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   generateTimeSlots,
+  isBookableStart,
   toAppointmentRange,
   weekdayForDate,
 } from "../data/demo.js";
@@ -24,7 +25,7 @@ const appointmentBody = z.object({
   serviceId: z.string().min(1),
   staffId: z.string().min(1).nullable(),
   date: z.iso.date(),
-  time: z.string().regex(/^\d{2}:\d{2}$/),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   customer: z.object({
     name: z.string().trim().min(2).max(100),
     email: z.email(),
@@ -157,10 +158,12 @@ publicRouter.get("/businesses/:slug/availability", async (request, response) => 
     intervals,
     service.durationMinutes,
   );
-  const ranges = candidateTimes.map((time) => ({
-    time,
-    ...toAppointmentRange(parsed.data.date, time, service.durationMinutes),
-  }));
+  const ranges = candidateTimes
+    .map((time) => ({
+      time,
+      ...toAppointmentRange(parsed.data.date, time, service.durationMinutes),
+    }))
+    .filter((range) => isBookableStart(range.startAt));
   const dayStart = toAppointmentRange(parsed.data.date, "00:00", 1).startAt;
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   const [appointments, timeOff] = await Promise.all([
@@ -274,6 +277,11 @@ publicRouter.post("/businesses/:slug/appointments", async (request, response) =>
     return response.status(404).json({ error: "Servicio u horario no disponible" });
   }
   const range = toAppointmentRange(date, time, service.durationMinutes);
+  if (!isBookableStart(range.startAt)) {
+    return response.status(400).json({
+      error: "La fecha debe ser futura y estar dentro del próximo año",
+    });
+  }
   let appointment: PublicAppointment | null = null;
 
   for (const staff of eligibleStaff) {

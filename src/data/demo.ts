@@ -8,6 +8,13 @@ export function toAppointmentRange(
   return { startAt, endAt };
 }
 
+const MAX_BOOKING_ADVANCE_MS = 366 * 24 * 60 * 60 * 1000;
+
+export function isBookableStart(startAt: Date, now = new Date()) {
+  const difference = startAt.getTime() - now.getTime();
+  return difference > 0 && difference <= MAX_BOOKING_ADVANCE_MS;
+}
+
 export type AvailabilityInterval = {
   startTime: string;
   endTime: string;

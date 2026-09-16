@@ -122,6 +122,37 @@ describe("API pública de reservas", () => {
     expect(repeated.body.data.cancelToken).toBe(first.body.data.cancelToken);
   });
 
+  it("rechaza horarios inválidos y reservas en el pasado", async () => {
+    const app = createApp();
+    const customer = {
+      name: "Cliente Demo",
+      email: "cliente@example.com",
+      phone: "1155550101",
+    };
+
+    const invalidTime = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send({
+        serviceId: "classic-cut",
+        staffId: "nico-ramos",
+        date: "2027-01-21",
+        time: "29:80",
+        customer,
+      });
+    const past = await request(app)
+      .post("/api/v1/businesses/norte-studio/appointments")
+      .send({
+        serviceId: "classic-cut",
+        staffId: "nico-ramos",
+        date: "2020-01-21",
+        time: "10:30",
+        customer,
+      });
+
+    expect(invalidTime.status).toBe(400);
+    expect(past.status).toBe(400);
+  });
+
   it("ofrece el mismo horario una vez por cada profesional disponible", async () => {
     const app = createApp();
     const appointment = {
