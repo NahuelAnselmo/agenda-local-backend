@@ -3,6 +3,15 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { hashPassword } from "../src/auth/password.js";
 
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.ALLOW_DEMO_SEED !== "true"
+) {
+  throw new Error(
+    "El seed ficticio está bloqueado en producción. Usá un flujo de alta seguro.",
+  );
+}
+
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL es obligatoria");
 

@@ -13,6 +13,7 @@
     "prisma:validate": "prisma validate --config prisma7.config.ts",
     "db:dev": "prisma dev -d -n agenda-local",
     "db:migrate": "prisma migrate dev --config prisma7.config.ts",
+    "db:deploy": "prisma migrate deploy --config prisma7.config.ts",
     "db:seed": "prisma db seed --config prisma7.config.ts"
   },
   "keywords": [
