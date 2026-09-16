@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { NextFunction, Request, Response } from "express";
+import type { CookieOptions, NextFunction, Request, Response } from "express";
 import { prisma } from "../lib/prisma.js";
 
 const SESSION_COOKIE = "agenda_local_session";
@@ -7,6 +7,25 @@ const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 7;
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function sessionCookieName() {
+  return process.env.NODE_ENV === "production"
+    ? "__Host-agenda_local_session"
+    : SESSION_COOKIE;
+}
+
+function sessionCookieOptions(): CookieOptions {
+  const configured = process.env.COOKIE_SAME_SITE;
+  const sameSite: CookieOptions["sameSite"] =
+    configured === "none" || configured === "strict" ? configured : "lax";
+
+  return {
+    httpOnly: true,
+    sameSite,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+  };
 }
 
 function getCookie(request: Request, name: string) {
@@ -25,23 +44,20 @@ export async function startSession(userId: string, response: Response) {
     data: { userId, tokenHash: hashToken(token), expiresAt },
   });
 
-  response.cookie(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+  response.cookie(sessionCookieName(), token, {
+    ...sessionCookieOptions(),
     maxAge: SESSION_DURATION_MS,
-    path: "/",
   });
 }
 
 export async function endSession(request: Request, response: Response) {
-  const token = getCookie(request, SESSION_COOKIE);
+  const token = getCookie(request, sessionCookieName());
   if (token) {
     await prisma.session.deleteMany({
       where: { tokenHash: hashToken(token) },
     });
   }
-  response.clearCookie(SESSION_COOKIE, { path: "/" });
+  response.clearCookie(sessionCookieName(), sessionCookieOptions());
 }
 
 export async function requireAuth(
@@ -49,7 +65,7 @@ export async function requireAuth(
   response: Response,
   next: NextFunction,
 ) {
-  const token = getCookie(request, SESSION_COOKIE);
+  const token = getCookie(request, sessionCookieName());
   if (!token) {
     return response.status(401).json({ error: "Sesión requerida" });
   }

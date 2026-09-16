@@ -266,6 +266,19 @@ describe("API pública de reservas", () => {
     expect(dashboard.body.data.services).toHaveLength(4);
   });
 
+  it("rechaza operaciones de autenticación desde un origen no autorizado", async () => {
+    const response = await request(createApp())
+      .post("/api/v1/auth/login")
+      .set("Origin", "https://sitio-malicioso.example")
+      .send({
+        email: "admin@nortestudio.demo",
+        password: "Demo1234!",
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("Origen de solicitud no autorizado");
+  });
+
   it("actualiza las credenciales validando la contraseña actual", async () => {
     const app = createApp();
     const original = await prisma.user.findUniqueOrThrow({

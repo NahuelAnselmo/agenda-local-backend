@@ -9,6 +9,11 @@ import { publicRouter } from "./routes/public.js";
 export function createApp() {
   const app = express();
   const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:3000";
+  const allowedOrigins = new Set(
+    [frontendUrl, ...(process.env.ALLOWED_ORIGINS ?? "").split(",")]
+      .map((origin) => origin.trim().replace(/\/$/, ""))
+      .filter(Boolean),
+  );
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 10,
@@ -23,12 +28,34 @@ export function createApp() {
   });
 
   app.disable("x-powered-by");
-  app.set("trust proxy", 1);
+  const trustProxyHops = Number(
+    process.env.TRUST_PROXY_HOPS ??
+      (process.env.NODE_ENV === "production" ? "1" : "0"),
+  );
+  if (Number.isInteger(trustProxyHops) && trustProxyHops > 0) {
+    app.set("trust proxy", trustProxyHops);
+  }
   app.use(helmet());
-  app.use(cors({ origin: frontendUrl, credentials: true }));
+  app.use(
+    cors({
+      origin(origin, callback) {
+        callback(null, !origin || allowedOrigins.has(origin.replace(/\/$/, "")));
+      },
+      credentials: true,
+    }),
+  );
   app.use(express.json({ limit: "32kb" }));
   app.use("/api/v1/auth/login", loginLimiter);
   app.use("/api/v1/businesses/:slug/appointments", bookingLimiter);
+  app.use(["/api/v1/auth", "/api/v1/admin"], (request, response, next) => {
+    if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return next();
+
+    const origin = request.get("origin")?.replace(/\/$/, "");
+    if (origin && allowedOrigins.has(origin)) return next();
+    if (!origin && process.env.NODE_ENV === "test") return next();
+
+    return response.status(403).json({ error: "Origen de solicitud no autorizado" });
+  });
 
   app.get("/api/v1/health", (_request, response) => {
     response.json({

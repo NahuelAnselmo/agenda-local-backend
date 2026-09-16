@@ -14,6 +14,12 @@ múltiples comercios mediante organizationId.
 
 La API queda disponible en http://localhost:4000/api/v1.
 
+`FRONTEND_URL` y `ALLOWED_ORIGINS` deben contener únicamente frontends
+autorizados. Si frontend y API viven en sitios diferentes, se puede configurar
+`COOKIE_SAME_SITE=none`; en producción la cookie siempre se envía como segura.
+`TRUST_PROXY_HOPS` debe coincidir con la cantidad real de proxies de la
+plataforma.
+
 ## Comandos
 
 - npm run typecheck: valida TypeScript.
