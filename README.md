@@ -41,6 +41,29 @@ horarios semanales, turnos de muestra y un usuario propietario:
 El seed ficticio se bloquea cuando `NODE_ENV=production`. No debe utilizarse
 para crear las cuentas iniciales de comercios reales.
 
+## Demo pública
+
+La demostración pública puede habilitarse con `DEMO_MODE=true`. En ese entorno:
+
+- las credenciales principales no se pueden modificar;
+- Resend no envía emails a direcciones ingresadas por visitantes;
+- los demás flujos operativos permanecen disponibles para evaluación;
+- un cron diario restaura Norte Studio y sus datos ficticios.
+
+El cron de Vercel llama a `GET /api/v1/demo/reset`. La ruta solo responde cuando
+recibe `Authorization: Bearer <CRON_SECRET>` y usa una transacción con bloqueo de
+PostgreSQL para evitar reinicios simultáneos. `CRON_SECRET` debe ser aleatorio y
+tener al menos 16 caracteres.
+
+Para preparar una base nueva de demostración:
+
+```bash
+npm run db:deploy
+ALLOW_DEMO_SEED=true NODE_ENV=production npm run db:seed
+```
+
+No habilitar `ALLOW_DEMO_SEED` de manera permanente en una instalación real.
+
 El esquema contempla organizaciones, usuarios, membresías, profesionales,
 servicios, disponibilidad, ausencias, sesiones y turnos.
 
@@ -70,3 +93,10 @@ un dominio verificado en Resend. `FRONTEND_URL` se usa para construir el enlace
 `/admin` incluido en el mensaje. Si el proveedor no está configurado o rechaza
 el envío, la cuenta igualmente queda creada y el panel muestra las credenciales
 para compartirlas manualmente.
+
+## Despliegue
+
+La aplicación exporta Express desde `src/server.ts`, compatible con Vercel, y
+conserva `app.listen` para el desarrollo local. En producción se deben configurar
+`DATABASE_URL`, `FRONTEND_URL`, `ALLOWED_ORIGINS`, `COOKIE_SAME_SITE`,
+`TRUST_PROXY_HOPS`, `DEMO_MODE` y `CRON_SECRET`.
