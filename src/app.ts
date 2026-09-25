@@ -4,6 +4,7 @@ import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
+import { demoRouter } from "./routes/demo.js";
 import { publicRouter } from "./routes/public.js";
 
 export function createApp() {
@@ -68,6 +69,7 @@ export function createApp() {
   });
 
   app.use("/api/v1", publicRouter);
+  app.use("/api/v1/demo", demoRouter);
   app.use("/api/v1/auth", authRouter);
   app.use("/api/v1/admin", adminRouter);
 

@@ -86,7 +86,9 @@ export async function deliverWithResend(
 export async function sendStaffAccessEmail(
   input: StaffAccessEmailInput,
 ): Promise<EmailDeliveryStatus> {
-  if (process.env.NODE_ENV === "test") return "not_configured";
+  if (process.env.NODE_ENV === "test" || process.env.DEMO_MODE === "true") {
+    return "not_configured";
+  }
 
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;

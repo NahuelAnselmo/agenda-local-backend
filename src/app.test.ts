@@ -739,4 +739,62 @@ describe("API pública de reservas", () => {
     expect(cancelled.status).toBe(200);
     expect(cancelled.body.data.status).toBe("CANCELLED");
   });
+
+  it("protege las credenciales principales en el entorno demo", async () => {
+    const previousDemoMode = process.env.DEMO_MODE;
+    process.env.DEMO_MODE = "true";
+
+    try {
+      const app = createApp();
+      const login = await request(app).post("/api/v1/auth/login").send({
+        email: "admin@nortestudio.demo",
+        password: "Demo1234!",
+      });
+      const sessionCookie = login.headers["set-cookie"];
+      if (!sessionCookie) throw new Error("La respuesta no creó una sesión");
+
+      const response = await request(app)
+        .patch("/api/v1/auth/me/credentials")
+        .set("Cookie", sessionCookie)
+        .send({
+          currentPassword: "Demo1234!",
+          email: "otro-email@nortestudio.demo",
+        });
+
+      expect(response.status).toBe(403);
+      expect(response.body.error).toContain("protegidas");
+    } finally {
+      if (previousDemoMode === undefined) delete process.env.DEMO_MODE;
+      else process.env.DEMO_MODE = previousDemoMode;
+    }
+  });
+
+  it("restaura la demo únicamente con el secreto del cron", async () => {
+    const previousDemoMode = process.env.DEMO_MODE;
+    const previousCronSecret = process.env.CRON_SECRET;
+    process.env.DEMO_MODE = "true";
+    process.env.CRON_SECRET = "cron-secret-for-tests";
+
+    try {
+      const app = createApp();
+      const unauthorized = await request(app).get("/api/v1/demo/reset");
+      const restored = await request(app)
+        .get("/api/v1/demo/reset")
+        .set("Authorization", "Bearer cron-secret-for-tests");
+      const login = await request(app).post("/api/v1/auth/login").send({
+        email: "admin@nortestudio.demo",
+        password: "Demo1234!",
+      });
+
+      expect(unauthorized.status).toBe(401);
+      expect(restored.status).toBe(200);
+      expect(restored.body.data.resetAt).toBeTypeOf("string");
+      expect(login.status).toBe(200);
+    } finally {
+      if (previousDemoMode === undefined) delete process.env.DEMO_MODE;
+      else process.env.DEMO_MODE = previousDemoMode;
+      if (previousCronSecret === undefined) delete process.env.CRON_SECRET;
+      else process.env.CRON_SECRET = previousCronSecret;
+    }
+  });
 });

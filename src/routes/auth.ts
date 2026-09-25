@@ -68,6 +68,12 @@ authRouter.get("/me", requireAuth, (_request, response) => {
 });
 
 authRouter.patch("/me/credentials", requireAuth, async (request, response) => {
+  if (process.env.DEMO_MODE === "true") {
+    return response.status(403).json({
+      error: "Las credenciales están protegidas en el entorno de demostración",
+    });
+  }
+
   const parsed = credentialsBody.safeParse(request.body);
   if (!parsed.success) {
     return response.status(400).json({
