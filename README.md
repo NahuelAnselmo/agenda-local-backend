@@ -3,6 +3,8 @@
 API REST para disponibilidad y reserva de turnos, preparada para operar con
 múltiples comercios mediante organizationId.
 
+[API en producción](https://agenda-local-api.vercel.app/api/v1/health) · [Demo web](https://agenda-local-web.vercel.app) · [Repositorio frontend](https://github.com/NahuelAnselmo/agenda-local-frontend)
+
 ## Desarrollo local
 
 1. Copiar .env.example como .env.
@@ -96,7 +98,7 @@ para compartirlas manualmente.
 
 ## Despliegue
 
-La aplicación exporta Express desde `src/server.ts`, compatible con Vercel, y
-conserva `app.listen` para el desarrollo local. En producción se deben configurar
+La aplicación exporta Express desde `src/app.ts`, compatible con Vercel, y
+conserva `app.listen` en `src/server.ts` para el desarrollo local. En producción se deben configurar
 `DATABASE_URL`, `FRONTEND_URL`, `ALLOWED_ORIGINS`, `COOKIE_SAME_SITE`,
 `TRUST_PROXY_HOPS`, `DEMO_MODE` y `CRON_SECRET`.
