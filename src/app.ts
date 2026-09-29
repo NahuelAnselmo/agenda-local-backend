@@ -1,7 +1,8 @@
 import cors from "cors";
 import express from "express";
 import { rateLimit } from "express-rate-limit";
-import * as helmet from "helmet";
+import helmet from "helmet";
+import type { RequestHandler } from "express";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { demoRouter } from "./routes/demo.js";
@@ -36,7 +37,10 @@ export function createApp() {
   if (Number.isInteger(trustProxyHops) && trustProxyHops > 0) {
     app.set("trust proxy", trustProxyHops);
   }
-  app.use(helmet.default());
+  // Vercel resolves Helmet ESM types differently from the local compiler.
+  // Its runtime default export remains the middleware factory.
+  const securityHeaders = (helmet as unknown as () => RequestHandler)();
+  app.use(securityHeaders);
   app.use(
     cors({
       origin(origin, callback) {
