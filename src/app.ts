@@ -1,7 +1,7 @@
 import cors from "cors";
 import express from "express";
 import { rateLimit } from "express-rate-limit";
-import helmet from "helmet";
+import * as helmet from "helmet";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { demoRouter } from "./routes/demo.js";
@@ -36,7 +36,7 @@ export function createApp() {
   if (Number.isInteger(trustProxyHops) && trustProxyHops > 0) {
     app.set("trust proxy", trustProxyHops);
   }
-  app.use(helmet());
+  app.use(helmet.default());
   app.use(
     cors({
       origin(origin, callback) {
